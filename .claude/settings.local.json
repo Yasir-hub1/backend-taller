@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pyenv local:*)",
+      "Bash(python -m venv:*)",
+      "Bash(./venv/bin/pip install:*)",
+      "Bash(rm:*)",
+      "Bash(/Users/dev/.pyenv/versions/3.11.9/bin/python3 -m venv:*)",
+      "Bash(./venv/bin/python:*)",
+      "Bash(./venv/bin/pip3 install:*)",
+      "Bash(PYTHONNOUSERSITE=1 ./venv/bin/python:*)",
+      "Bash(find:*)",
+      "Bash(./venv/bin/django-admin:*)",
+      "Bash(ls:*)",
+      "Bash(xargs rm:*)",
+      "Bash(./venv/bin/pip3:*)",
+      "Bash(cat:*)",
+      "Bash(for app in apps apps/users apps/workshops apps/vehicles apps/incidents apps/ai_engine apps/assignments apps/payments apps/notifications)",
+      "Bash(do touch $app/__init__.py)",
+      "Bash(done)",
+      "Bash(python manage.py check:*)",
+      "Bash(chmod:*)",
+      "Bash(xargs:*)",
+      "Bash(python:*)",
+      "Bash(head:*)"
+    ]
+  }
+}
