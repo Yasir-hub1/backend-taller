@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from apps.users.models import User, ClientProfile, WorkshopOwnerProfile
+from apps.payments.stripe_service import StripeService
 
 
 class ClientProfileSerializer(serializers.ModelSerializer):
@@ -70,7 +71,19 @@ class RegisterClientSerializer(serializers.ModelSerializer):
         )
 
         # Crear perfil de cliente
-        ClientProfile.objects.create(user=user, **profile_data)
+        profile = ClientProfile.objects.create(user=user, **profile_data)
+
+        # Crear customer en Stripe para pagos futuros (si está configurado)
+        full_name = f"{user.first_name} {user.last_name}".strip()
+        stripe_result = StripeService.create_customer(
+            email=user.email,
+            name=full_name,
+            phone=user.phone or '',
+        )
+        customer_id = stripe_result.get('customer_id')
+        if customer_id:
+            profile.stripe_customer_id = customer_id
+            profile.save(update_fields=['stripe_customer_id'])
 
         return user
 

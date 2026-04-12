@@ -11,6 +11,7 @@ from apps.workshops.urls import app_patterns as workshops_app_patterns, web_patt
 from apps.vehicles.urls import app_patterns as vehicles_app_patterns
 from apps.incidents.urls import app_patterns as incidents_app_patterns, web_patterns as incidents_web_patterns, admin_patterns as incidents_admin_patterns
 from apps.payments.urls import app_patterns as payments_app_patterns, web_patterns as payments_web_patterns, admin_patterns as payments_admin_patterns
+from apps.payments.urls import shared_patterns as payments_shared_patterns
 from apps.notifications.urls import app_patterns as notifications_app_patterns, web_patterns as notifications_web_patterns
 from apps.assignments.urls import app_patterns as assignments_app_patterns
 
@@ -74,6 +75,9 @@ urlpatterns = [
 
     # /api/admin-api/ (commission, payments, metrics)
     path('api/admin-api/', include((payments_admin_patterns, 'payments'), namespace='admin-api')),
+
+    # /api/stripe/webhook/
+    path('api/', include((payments_shared_patterns, 'payments'), namespace='shared-payments')),
 ]
 
 # Servir archivos media en desarrollo

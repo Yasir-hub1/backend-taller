@@ -12,7 +12,7 @@ def assignment_detail(request, pk):
     """Detalle de una asignación (para el cliente)"""
     try:
         assignment = Assignment.objects.select_related(
-            'workshop', 'technician', 'incident'
+            'workshop', 'technician', 'incident', 'client_rating', 'payment'
         ).get(id=pk)
     except Assignment.DoesNotExist:
         return Response({'error': 'Asignación no encontrada'}, status=status.HTTP_404_NOT_FOUND)

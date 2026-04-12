@@ -4,6 +4,27 @@ from django.conf import settings
 import os
 
 
+def _normalize_incident_labels(raw):
+    """Lista de códigos IncidentType; si labels.json es otro formato, usar lista por defecto."""
+    default = [
+        'battery', 'tire', 'accident', 'engine',
+        'locksmith', 'overheating', 'other',
+    ]
+    if isinstance(raw, list) and raw:
+        if all(isinstance(x, str) for x in raw):
+            return raw
+    if isinstance(raw, dict) and raw:
+        keys = sorted(raw.keys(), key=lambda k: int(k) if str(k).isdigit() else 0)
+        vals = [raw[k] for k in keys]
+        if vals and all(v in default for v in vals):
+            return vals
+        print(
+            'WARNING: TF_LABELS no coincide con tipos de incidente. '
+            'Usando etiquetas por defecto para clasificación.'
+        )
+    return default
+
+
 class IncidentClassifier:
     """
     Clasifica imágenes de vehículos usando TensorFlow.
@@ -28,13 +49,10 @@ class IncidentClassifier:
             # Verificar si existe el archivo de etiquetas
             if os.path.exists(settings.TF_LABELS_PATH):
                 with open(settings.TF_LABELS_PATH) as f:
-                    self._labels = json.load(f)
+                    loaded = json.load(f)
+                self._labels = _normalize_incident_labels(loaded)
             else:
-                # Labels por defecto si no existe el archivo
-                self._labels = [
-                    'battery', 'tire', 'accident', 'engine',
-                    'locksmith', 'overheating', 'other'
-                ]
+                self._labels = _normalize_incident_labels([])
 
             # Intentar cargar el modelo si existe
             if os.path.exists(settings.TF_MODEL_PATH):
@@ -48,10 +66,7 @@ class IncidentClassifier:
         except Exception as e:
             print(f"Error loading model: {e}")
             self._model = None
-            self._labels = [
-                'battery', 'tire', 'accident', 'engine',
-                'locksmith', 'overheating', 'other'
-            ]
+            self._labels = _normalize_incident_labels([])
 
     def predict(self, image_path: str) -> dict:
         """
@@ -96,13 +111,14 @@ class IncidentClassifier:
         """
         Retorna una predicción placeholder cuando el modelo no está disponible.
         """
-        # Simulación simple: clasificar como 'other' con confianza media
-        scores = {label: 0.1 for label in self._labels}
-        scores['other'] = 0.4
+        labels = _normalize_incident_labels(self._labels)
+        scores = {label: 0.08 for label in labels}
+        pick = 'battery' if 'battery' in labels else (labels[-1] if labels else 'other')
+        scores[pick] = 0.42
 
         return {
-            'label': 'other',
-            'confidence': 0.4,
+            'label': pick,
+            'confidence': scores[pick],
             'all_scores': scores,
             'success': True,
             'note': 'Using placeholder predictions (model not loaded)'

@@ -91,6 +91,15 @@ def workshop_dashboard(request):
     )
     total_earnings = sum(p.workshop_net_amount for p in payments) if payments.exists() else Decimal('0.00')
 
+    month_payments = Payment.objects.filter(
+        assignment__workshop=workshop,
+        status__in=[PaymentStatus.CLIENT_PAID, PaymentStatus.COMMISSION_SETTLED],
+        paid_at__gte=start_of_month,
+    )
+    earnings_this_month = (
+        sum(p.workshop_net_amount for p in month_payments) if month_payments.exists() else Decimal('0.00')
+    )
+
     # Técnicos disponibles
     available_technicians = workshop.technicians.filter(is_available=True).count()
 
@@ -101,6 +110,7 @@ def workshop_dashboard(request):
         'completed_this_month': completed_this_month,
         'rating_avg': workshop.rating_avg,
         'total_earnings': total_earnings,
+        'earnings_this_month': earnings_this_month,
         'available_technicians': available_technicians,
     }
 

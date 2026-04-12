@@ -39,8 +39,14 @@ class WorkshopRatingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WorkshopRating
-        fields = ['id', 'workshop', 'client', 'client_name', 'score', 'comment', 'created_at']
+        fields = ['id', 'workshop', 'client', 'assignment', 'client_name', 'score', 'comment', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+
+class RateWorkshopSerializer(serializers.Serializer):
+    assignment_id = serializers.IntegerField(required=True)
+    score = serializers.IntegerField(min_value=1, max_value=5)
+    comment = serializers.CharField(required=False, allow_blank=True, max_length=2000)
 
 
 class WorkshopSerializer(serializers.ModelSerializer):
@@ -92,6 +98,7 @@ class WorkshopCreateSerializer(serializers.ModelSerializer):
 
 class NearbyWorkshopsSerializer(serializers.ModelSerializer):
     distance = serializers.DecimalField(max_digits=6, decimal_places=2, read_only=True)
+    distance_km = serializers.DecimalField(max_digits=6, decimal_places=2, read_only=True)
     available_technicians = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -99,7 +106,7 @@ class NearbyWorkshopsSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'description', 'address', 'latitude', 'longitude',
             'phone', 'logo', 'services', 'rating_avg', 'total_services',
-            'distance', 'available_technicians'
+            'distance', 'distance_km', 'available_technicians'
         ]
 
 
@@ -110,6 +117,7 @@ class WorkshopDashboardSerializer(serializers.Serializer):
     completed_this_month = serializers.IntegerField()
     rating_avg = serializers.DecimalField(max_digits=3, decimal_places=2)
     total_earnings = serializers.DecimalField(max_digits=10, decimal_places=2)
+    earnings_this_month = serializers.DecimalField(max_digits=10, decimal_places=2)
     available_technicians = serializers.IntegerField()
 
 

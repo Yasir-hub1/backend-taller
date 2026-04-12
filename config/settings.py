@@ -192,10 +192,18 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 
 # Firebase (push notifications)
 FIREBASE_CREDENTIALS_PATH = os.getenv('FIREBASE_CREDENTIALS_PATH', '')
+# Opcional: token de Expo (expo.dev) para mayor límite de rate en push API
+EXPO_ACCESS_TOKEN = os.getenv('EXPO_ACCESS_TOKEN', '')
 
 # TensorFlow Model Paths
 TF_MODEL_PATH = BASE_DIR / 'ml_models' / 'incident_classifier' / 'model.h5'
 TF_LABELS_PATH = BASE_DIR / 'ml_models' / 'incident_classifier' / 'labels.json'
+
+# Motor de asignación: si True, también se ofrece a talleres activos aún no verificados por admin (útil en desarrollo).
+ASSIGNMENT_ALLOW_UNVERIFIED = os.getenv(
+    'ASSIGNMENT_ALLOW_UNVERIFIED',
+    'True' if DEBUG else 'False',
+).lower() == 'true'
 
 # Django Eventstream (SSE)
 EVENTSTREAM_ALLOW_ORIGINS = CORS_ALLOWED_ORIGINS

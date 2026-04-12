@@ -1,7 +1,26 @@
 from geopy.distance import geodesic
+from django.conf import settings
 from apps.workshops.models import Workshop
 from apps.assignments.models import Assignment
 from decimal import Decimal
+
+
+def _workshop_handles_incident_type(workshop, incident_type: str) -> bool:
+    """
+    Comprueba si el taller puede atender el tipo de incidente.
+    'uncertain' y 'other' no filtran por rubro (cualquier taller con equipo puede recibir la oferta).
+    """
+    it = (incident_type or '').strip().lower()
+    if it in ('uncertain', 'other', ''):
+        return True
+    services = workshop.services or []
+    if not isinstance(services, list):
+        return False
+    if len(services) == 0:
+        return True
+    if 'general' in services:
+        return True
+    return it in services
 
 
 class AssignmentEngine:
@@ -22,10 +41,10 @@ class AssignmentEngine:
         """
         incident_location = (float(incident.latitude), float(incident.longitude))
 
-        workshops = Workshop.objects.filter(
-            is_active=True,
-            is_verified=True,
-        ).prefetch_related('technicians')
+        qs = Workshop.objects.filter(is_active=True)
+        if not getattr(settings, 'ASSIGNMENT_ALLOW_UNVERIFIED', False):
+            qs = qs.filter(is_verified=True)
+        workshops = qs.prefetch_related('technicians')
 
         candidates = []
 
@@ -35,17 +54,17 @@ class AssignmentEngine:
             if not has_available_tech:
                 continue
 
-            # Verificar que el incidente cabe en el tipo de servicio
-            incident_type = incident.incident_type
-            if incident_type not in workshop.services and 'general' not in workshop.services:
+            incident_type = str(incident.incident_type or '').strip()
+            if not _workshop_handles_incident_type(workshop, incident_type):
                 continue
 
             # Calcular distancia
             workshop_location = (float(workshop.latitude), float(workshop.longitude))
             distance_km = geodesic(incident_location, workshop_location).km
 
-            # Verificar si está dentro del radio de servicio
-            if distance_km > workshop.radius_km:
+            # Verificar si está dentro del radio de servicio (cap máximo 20km)
+            max_radius_km = min(float(workshop.radius_km), 20.0)
+            if distance_km > max_radius_km:
                 continue
 
             # Score: menor distancia + mayor rating = mejor score
@@ -64,11 +83,14 @@ class AssignmentEngine:
         # Tomar los top 5 candidatos
         top_candidates = candidates[:5]
 
-        # Crear assignments en estado 'offered' y notificar
+        # Crear assignments en estado 'offered' y notificar (idempotente por incidente+taller)
         for candidate in top_candidates:
-            Assignment.objects.create(
+            w = candidate['workshop']
+            if Assignment.objects.filter(incident=incident, workshop=w).exists():
+                continue
+            assignment_row = Assignment.objects.create(
                 incident=incident,
-                workshop=candidate['workshop'],
+                workshop=w,
                 distance_km=Decimal(str(candidate['distance_km'])),
                 status='offered',
             )
@@ -107,7 +129,24 @@ class AssignmentEngine:
                     push_sent=bool(owner_user.fcm_token)
                 )
 
+                from apps.notifications.sse_views import notify_user
+                notify_user(owner_user.id, {
+                    'event': 'new_assignment_offer',
+                    'incident_id': incident.id,
+                    'assignment_id': assignment_row.id,
+                    'distance_km': float(candidate['distance_km']),
+                })
+
             except Exception as e:
                 print(f"Error sending notification to workshop {candidate['workshop'].id}: {e}")
+
+        if not top_candidates:
+            print(
+                f"[AssignmentEngine] Sin candidatos para incidente {incident.id}: "
+                f"talleres activos={'+unverif' if getattr(settings, 'ASSIGNMENT_ALLOW_UNVERIFIED', False) else 'verif.'}, "
+                f"tipo={incident.incident_type}, ubicación=({incident.latitude},{incident.longitude}). "
+                "Revisa: técnicos disponibles, radio_km, services que incluyan el tipo o 'general', "
+                "y que django-q (qcluster) esté ejecutando el pipeline."
+            )
 
         return top_candidates

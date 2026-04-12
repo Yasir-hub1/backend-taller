@@ -11,6 +11,10 @@ app_patterns = [
     path('<int:pk>/', views_app.payment_detail, name='app-detail'),
 ]
 
+shared_patterns = [
+    path('stripe/webhook/', views_app.stripe_webhook, name='stripe-webhook'),
+]
+
 # Web - /api/web/payments/
 web_patterns = [
     path('earnings/', views_web.earnings_summary, name='web-earnings'),

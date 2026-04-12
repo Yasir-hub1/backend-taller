@@ -8,6 +8,14 @@ from apps.notifications.serializers import NotificationSerializer
 
 @api_view(['GET'])
 @permission_classes([IsWorkshopOwner])
+def unread_count_web(request):
+    """Contador de notificaciones no leídas (panel taller / badge en tiempo real)."""
+    count = Notification.objects.filter(user=request.user, is_read=False).count()
+    return Response({'unread_count': count})
+
+
+@api_view(['GET'])
+@permission_classes([IsWorkshopOwner])
 def notification_list(request):
     """Lista de notificaciones del taller"""
     notifications = Notification.objects.filter(user=request.user).order_by('-created_at')[:50]

@@ -15,6 +15,10 @@ app_patterns = [
     path('<int:pk>/upload-evidence/', views_app.IncidentViewSet.as_view({
         'post': 'upload_evidence'
     }), name='app-upload-evidence'),
+    path('<int:pk>/evidence/', views_app.IncidentViewSet.as_view({
+        'post': 'upload_evidence',
+        'get': 'evidences'
+    }), name='app-evidence'),
     path('<int:pk>/evidences/', views_app.IncidentViewSet.as_view({
         'get': 'evidences'
     }), name='app-evidences'),

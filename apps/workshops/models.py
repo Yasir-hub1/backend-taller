@@ -63,13 +63,19 @@ class Technician(models.Model):
 class WorkshopRating(models.Model):
     workshop = models.ForeignKey(Workshop, on_delete=models.CASCADE, related_name='ratings')
     client = models.ForeignKey('users.ClientProfile', on_delete=models.CASCADE)
+    assignment = models.OneToOneField(
+        'assignments.Assignment',
+        on_delete=models.CASCADE,
+        related_name='client_rating',
+        null=True,
+        blank=True,
+    )
     score = models.PositiveSmallIntegerField()  # 1–5
     comment = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'workshop_ratings'
-        unique_together = [['workshop', 'client']]
 
     def __str__(self):
         return f"{self.workshop.name} - {self.score}/5"

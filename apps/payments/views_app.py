@@ -7,6 +7,9 @@ from apps.payments.serializers import PaymentSerializer, PaymentIntentSerializer
 from apps.payments.stripe_service import StripeService
 from apps.assignments.models import Assignment, AssignmentStatus
 from django.utils import timezone
+from rest_framework.permissions import AllowAny
+from django.views.decorators.csrf import csrf_exempt
+from apps.notifications.sse_views import notify_incident_update
 
 
 @api_view(['POST'])
@@ -69,6 +72,7 @@ def create_payment_intent(request):
     payment.save()
 
     return Response({
+        'payment_id': payment.id,
         'client_secret': result['client_secret'],
         'payment_intent_id': result['payment_intent_id'],
         'amount': payment.total_amount,
@@ -136,6 +140,104 @@ def confirm_payment(request):
         'payment_id': payment.id,
         'status': payment.status,
     })
+
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def stripe_webhook(request):
+    """
+    Webhook Stripe:
+    - payment_intent.succeeded -> marca client_paid y transfiere neto al taller (Connect)
+    """
+    sig_header = request.META.get('HTTP_STRIPE_SIGNATURE', '')
+    payload = request.body
+
+    try:
+        event = StripeService.handle_webhook(payload, sig_header)
+    except ValueError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    event_type = event.get('type')
+    data = event.get('data', {}).get('object', {})
+
+    if event_type == 'payment_intent.succeeded':
+        payment_intent_id = data.get('id')
+        if not payment_intent_id:
+            return Response({'ok': True})
+
+        try:
+            payment = Payment.objects.select_related(
+                'assignment',
+                'assignment__workshop',
+                'assignment__workshop__owner',
+                'assignment__workshop__owner__user',
+            ).get(stripe_payment_intent_id=payment_intent_id)
+        except Payment.DoesNotExist:
+            return Response({'ok': True})
+
+        if payment.status == PaymentStatus.PENDING:
+            payment.status = PaymentStatus.CLIENT_PAID
+            payment.paid_at = timezone.now()
+            payment.stripe_charge_id = (data.get('latest_charge') or '')[:100]
+            payment.save(update_fields=['status', 'paid_at', 'stripe_charge_id'])
+
+        workshop_owner_profile = payment.assignment.workshop.owner
+        stripe_account_id = workshop_owner_profile.stripe_account_id
+
+        if stripe_account_id and payment.status in [PaymentStatus.CLIENT_PAID, PaymentStatus.PENDING]:
+            transfer_result = StripeService.transfer_to_workshop(
+                amount_usd=float(payment.workshop_net_amount),
+                stripe_account_id=stripe_account_id,
+                metadata={
+                    'payment_id': str(payment.id),
+                    'assignment_id': str(payment.assignment_id),
+                    'incident_id': str(payment.assignment.incident_id),
+                },
+            )
+            transfer_id = transfer_result.get('transfer_id')
+            if transfer_id:
+                payment.stripe_transfer_id = transfer_id
+                payment.status = PaymentStatus.COMMISSION_SETTLED
+                payment.settled_at = timezone.now()
+                payment.save(update_fields=['stripe_transfer_id', 'status', 'settled_at'])
+
+        try:
+            from apps.notifications.models import Notification, NotificationType
+            from apps.notifications.firebase_service import FirebaseService
+            owner_user = workshop_owner_profile.user
+            Notification.objects.create(
+                user=owner_user,
+                title='Pago recibido',
+                body=f'Pago confirmado. Neto a recibir: ${payment.workshop_net_amount}',
+                notification_type=NotificationType.PAYMENT_CONFIRMED,
+                incident=payment.assignment.incident,
+                data={
+                    'payment_id': payment.id,
+                    'total_amount': str(payment.total_amount),
+                    'net_amount': str(payment.workshop_net_amount),
+                },
+                push_sent=bool(owner_user.fcm_token),
+            )
+            if owner_user.fcm_token:
+                firebase = FirebaseService()
+                firebase.send_notification(
+                    token=owner_user.fcm_token,
+                    title='Pago recibido',
+                    body=f'Recibirás ${payment.workshop_net_amount} en tu cuenta Stripe.',
+                    data={'payment_id': str(payment.id), 'type': 'payment_confirmed'},
+                )
+        except Exception as e:
+            print(f"Webhook notification error: {e}")
+
+        notify_incident_update(payment.assignment.incident_id, {
+            'event': 'payment_confirmed',
+            'incident_id': payment.assignment.incident_id,
+            'payment_status': payment.status,
+            'amount': float(payment.total_amount),
+        })
+
+    return Response({'ok': True})
 
 
 @api_view(['GET'])

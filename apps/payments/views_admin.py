@@ -7,11 +7,11 @@ from apps.payments.serializers import (
     PaymentSerializer, CommissionConfigSerializer, MetricsSerializer
 )
 from apps.users.models import User, Role
-from apps.workshops.models import Workshop
-from apps.incidents.models import Incident, IncidentStatus
+from apps.workshops.models import Workshop, WorkshopRating
+from apps.incidents.models import Incident, IncidentStatus, IncidentCycleMetric
 from django.utils import timezone
-from datetime import timedelta
 from decimal import Decimal
+from django.db.models import Avg
 
 
 class CommissionConfigViewSet(viewsets.ModelViewSet):
@@ -74,6 +74,36 @@ def platform_metrics(request):
     total_revenue = sum(p.total_amount for p in payments) if payments.exists() else Decimal('0.00')
     total_commission_earned = sum(p.commission_amount for p in payments) if payments.exists() else Decimal('0.00')
 
+    payments_month = Payment.objects.filter(
+        status__in=[PaymentStatus.CLIENT_PAID, PaymentStatus.COMMISSION_SETTLED],
+        paid_at__gte=start_of_month,
+    )
+    commission_this_month = (
+        sum(p.commission_amount for p in payments_month) if payments_month.exists() else Decimal('0.00')
+    )
+
+    resolution_rate_pct = round(
+        (completed_incidents / total_incidents * 100.0) if total_incidents else 0.0,
+        1,
+    )
+
+    avg_assign = IncidentCycleMetric.objects.aggregate(a=Avg('seconds_to_assignment'))['a']
+    avg_assignment_seconds = float(avg_assign) if avg_assign is not None else None
+
+    pr_avg = WorkshopRating.objects.aggregate(a=Avg('score'))['a']
+    platform_rating_avg = round(float(pr_avg), 2) if pr_avg is not None else None
+
+    ia_sample_predicted_type = ''
+    ia_sample_confidence = None
+    last_metric = (
+        IncidentCycleMetric.objects.exclude(ai_predicted_type='')
+        .order_by('-created_at')
+        .first()
+    )
+    if last_metric:
+        ia_sample_predicted_type = last_metric.ai_predicted_type or ''
+        ia_sample_confidence = last_metric.ai_confidence
+
     data = {
         'total_users': total_users,
         'total_clients': total_clients,
@@ -84,6 +114,12 @@ def platform_metrics(request):
         'total_commission_earned': total_commission_earned,
         'active_incidents': active_incidents,
         'completed_incidents': completed_incidents,
+        'resolution_rate_pct': resolution_rate_pct,
+        'avg_assignment_seconds': avg_assignment_seconds,
+        'commission_this_month': commission_this_month,
+        'platform_rating_avg': platform_rating_avg,
+        'ia_sample_predicted_type': ia_sample_predicted_type,
+        'ia_sample_confidence': ia_sample_confidence,
     }
 
     serializer = MetricsSerializer(data)

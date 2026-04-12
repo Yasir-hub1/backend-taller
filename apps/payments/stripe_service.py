@@ -43,13 +43,15 @@ class StripeService:
             }
 
         try:
-            intent = stripe.PaymentIntent.create(
-                amount=int(amount_usd * 100),  # Stripe usa centavos
-                currency='usd',
-                customer=customer_id,
-                metadata=metadata,
-                automatic_payment_methods={'enabled': True},
-            )
+            payload = {
+                'amount': int(amount_usd * 100),  # Stripe usa centavos
+                'currency': 'usd',
+                'metadata': metadata,
+                'automatic_payment_methods': {'enabled': True},
+            }
+            if customer_id:
+                payload['customer'] = customer_id
+            intent = stripe.PaymentIntent.create(**payload)
             return {
                 'client_secret': intent.client_secret,
                 'payment_intent_id': intent.id
@@ -142,6 +144,21 @@ class StripeService:
             return {'account_id': account.id}
         except Exception as e:
             return {'error': str(e), 'account_id': None}
+
+    @staticmethod
+    def create_customer(email: str, name: str = '', phone: str = '') -> dict:
+        """Crear customer para clientes móviles."""
+        if not settings.STRIPE_SECRET_KEY:
+            return {'error': 'Stripe not configured', 'customer_id': None}
+        try:
+            customer = stripe.Customer.create(
+                email=email or None,
+                name=name or None,
+                phone=phone or None,
+            )
+            return {'customer_id': customer.id}
+        except Exception as e:
+            return {'error': str(e), 'customer_id': None}
 
     @staticmethod
     def handle_webhook(payload: bytes, sig_header: str):

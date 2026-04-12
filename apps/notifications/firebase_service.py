@@ -24,41 +24,28 @@ class FirebaseService:
 
     def send_notification(self, token: str, title: str, body: str, data: dict = None):
         """
-        Envía una notificación push a un dispositivo específico.
-
-        Args:
-            token: FCM token del dispositivo
-            title: Título de la notificación
-            body: Cuerpo del mensaje
-            data: Datos adicionales (dict)
-
-        Returns:
-            message_id si se envió exitosamente, None en caso contrario
+        Entrega push al dispositivo (Expo Push API o FCM según el token).
         """
+        from apps.notifications.push_service import send_device_push
+        return send_device_push(token, title, body, data)
+
+    def _send_fcm_direct(self, token: str, title: str, body: str, data: dict = None):
+        """Solo FCM nativo (sin pasar por Expo). Usado internamente por push_service."""
         if not token:
             return None
-
         if not FirebaseService._initialized:
             print("Firebase not initialized - notification not sent")
             return None
-
         try:
-            # Convertir todos los valores del dict a strings
             data_str = {k: str(v) for k, v in (data or {}).items()}
-
             message = messaging.Message(
-                notification=messaging.Notification(
-                    title=title,
-                    body=body
-                ),
+                notification=messaging.Notification(title=title, body=body),
                 data=data_str,
                 token=token,
             )
-
             response = messaging.send(message)
-            print(f"Successfully sent message: {response}")
+            print(f"Successfully sent FCM message: {response}")
             return response
-
         except Exception as e:
             print(f"Error sending Firebase notification: {e}")
             return None
@@ -79,26 +66,10 @@ class FirebaseService:
         if not tokens:
             return None
 
-        if not FirebaseService._initialized:
-            print("Firebase not initialized - multicast not sent")
-            return None
-
-        try:
-            data_str = {k: str(v) for k, v in (data or {}).items()}
-
-            message = messaging.MulticastMessage(
-                notification=messaging.Notification(
-                    title=title,
-                    body=body
-                ),
-                data=data_str,
-                tokens=tokens,
-            )
-
-            response = messaging.send_multicast(message)
-            print(f"Successfully sent {response.success_count} messages")
-            return response
-
-        except Exception as e:
-            print(f"Error sending Firebase multicast: {e}")
-            return None
+        from apps.notifications.push_service import send_device_push
+        ok = 0
+        for t in tokens:
+            if t and send_device_push(t, title, body, data):
+                ok += 1
+        print(f"Multicast push: {ok}/{len(tokens)}")
+        return ok

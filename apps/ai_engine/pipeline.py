@@ -6,6 +6,7 @@ from apps.ai_engine.whisper_service import WhisperService
 from apps.ai_engine.classifier_service import IncidentClassifier
 from apps.ai_engine.summary_service import SummaryService
 from apps.incidents.models import Incident, Evidence, EvidenceType, IncidentType, IncidentPriority, IncidentStatus
+from apps.notifications.sse_views import notify_incident_update
 
 
 # Mapeo de tipo de incidente a prioridad
@@ -43,6 +44,11 @@ def process_incident_pipeline(incident_id: int):
     # Cambiar estado a analyzing
     incident.status = IncidentStatus.ANALYZING
     incident.save(update_fields=['status'])
+    notify_incident_update(incident.id, {
+        'event': 'status_change',
+        'incident_id': incident.id,
+        'status': IncidentStatus.ANALYZING,
+    })
 
     # Inicializar servicios IA
     whisper = WhisperService()
@@ -71,7 +77,8 @@ def process_incident_pipeline(incident_id: int):
                 best_classification = result
 
     # Determinar tipo de incidente basado en clasificación de imagen
-    if best_classification['confidence'] > 0.5:
+    # Umbral 0.3: compatible con placeholder IA (~0.4) y modelos ruidosos; sigue siendo conservador.
+    if best_classification['confidence'] > 0.3:
         incident_type = best_classification['label']
     else:
         incident_type = 'uncertain'
@@ -109,12 +116,36 @@ def process_incident_pipeline(incident_id: int):
     incident.priority = PRIORITY_MAP.get(incident_type, IncidentPriority.MEDIUM)
     incident.status = IncidentStatus.WAITING_WORKSHOP
     incident.save()
+    notify_incident_update(incident.id, {
+        'event': 'status_change',
+        'incident_id': incident.id,
+        'status': IncidentStatus.WAITING_WORKSHOP,
+        'incident_type': incident.incident_type,
+        'priority': incident.priority,
+    })
 
     # Disparar motor de asignación
     try:
         from apps.assignments.engine import AssignmentEngine
-        AssignmentEngine.find_and_notify_workshops(incident)
+        candidates = AssignmentEngine.find_and_notify_workshops(incident)
     except Exception as e:
         print(f"Error in assignment engine: {e}")
+        candidates = []
+
+    notify_incident_update(incident.id, {
+        'event': 'ai_complete',
+        'incident_id': incident.id,
+        'type': incident.incident_type,
+        'priority': incident.priority,
+        'confidence': incident.ai_confidence,
+        'candidates_count': len(candidates),
+    })
 
     print(f"Incident {incident_id} processed successfully")
+    return {
+        'incident_id': incident.id,
+        'type': incident.incident_type,
+        'priority': incident.priority,
+        'confidence': incident.ai_confidence,
+        'candidates_count': len(candidates),
+    }

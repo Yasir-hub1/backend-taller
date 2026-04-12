@@ -34,9 +34,15 @@ def on_pipeline_complete(task):
             # El task.args[0] contiene el incident_id
             incident_id = task.args[0] if task.args else None
             if incident_id:
+                payload = task.result if isinstance(task.result, dict) else {}
                 notify_incident_update(incident_id, {
                     'event': 'ai_complete',
-                    'status': 'success'
+                    'status': 'success',
+                    'incident_id': incident_id,
+                    'type': payload.get('type'),
+                    'priority': payload.get('priority'),
+                    'confidence': payload.get('confidence'),
+                    'candidates_count': payload.get('candidates_count'),
                 })
         except Exception as e:
             print(f"Error in pipeline complete callback: {e}")

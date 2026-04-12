@@ -2,7 +2,9 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
+from django.db.models import Prefetch
 from apps.incidents.models import Incident, Evidence, EvidenceType, IncidentStatus
+from apps.assignments.models import Assignment
 from apps.incidents.serializers import (
     IncidentSerializer, IncidentDetailSerializer, IncidentCreateSerializer,
     EvidenceSerializer, IncidentStatusHistorySerializer
@@ -23,15 +25,23 @@ class IncidentViewSet(viewsets.ModelViewSet):
         return IncidentSerializer
 
     def get_queryset(self):
-        return Incident.objects.filter(client=self.request.user.client_profile).order_by('-created_at')
+        aq = Assignment.objects.select_related(
+            'workshop', 'technician', 'client_rating', 'payment'
+        )
+        return (
+            Incident.objects.filter(client=self.request.user.client_profile)
+            .select_related('vehicle', 'client__user')
+            .prefetch_related(Prefetch('assignments', queryset=aq))
+            .order_by('-created_at')
+        )
 
     def perform_create(self, serializer):
         incident = serializer.save(
             client=self.request.user.client_profile,
             status=IncidentStatus.PENDING
         )
-        # Disparar pipeline de IA asíncrono
-        enqueue_incident_pipeline(incident.id)
+        # El pipeline IA + motor de asignación se ejecutan tras subir evidencias
+        # (upload_evidence), cuando hay datos para clasificar y ofrecer talleres.
 
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_evidence(self, request, pk=None):
@@ -88,7 +98,11 @@ class IncidentViewSet(viewsets.ModelViewSet):
     def assignment(self, request, pk=None):
         """Ver asignación activa del incidente"""
         incident = self.get_object()
-        assignment = incident.assignments.filter(status__in=['accepted', 'in_route', 'arrived', 'in_service']).first()
+        assignment = (
+            incident.assignments.filter(status__in=['accepted', 'in_route', 'arrived', 'in_service'])
+            .select_related('workshop', 'technician', 'client_rating', 'payment')
+            .first()
+        )
         if assignment:
             from apps.assignments.serializers import AssignmentDetailSerializer
             return Response(AssignmentDetailSerializer(assignment).data)

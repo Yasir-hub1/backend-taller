@@ -8,6 +8,7 @@ class AssignmentSerializer(serializers.ModelSerializer):
     workshop_name = serializers.CharField(source='workshop.name', read_only=True)
     technician_name = serializers.CharField(source='technician.name', read_only=True, allow_null=True)
     incident_type = serializers.CharField(source='incident.get_incident_type_display', read_only=True)
+    client_rating = serializers.SerializerMethodField()
 
     class Meta:
         model = Assignment
@@ -15,12 +16,19 @@ class AssignmentSerializer(serializers.ModelSerializer):
             'id', 'incident', 'incident_type', 'workshop', 'workshop_name',
             'technician', 'technician_name', 'status', 'distance_km',
             'estimated_arrival_minutes', 'service_cost', 'offered_at',
-            'accepted_at', 'completed_at', 'rejection_reason'
+            'accepted_at', 'arrived_at', 'completed_at', 'rejection_reason',
+            'client_rating',
         ]
         read_only_fields = [
-            'id', 'offered_at', 'accepted_at', 'completed_at',
+            'id', 'offered_at', 'accepted_at', 'arrived_at', 'completed_at',
             'distance_km', 'rejection_reason'
         ]
+
+    def get_client_rating(self, obj):
+        r = getattr(obj, 'client_rating', None)
+        if r is None:
+            return None
+        return {'score': r.score, 'comment': r.comment}
 
 
 class AssignmentDetailSerializer(AssignmentSerializer):

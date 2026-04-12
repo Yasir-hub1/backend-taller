@@ -31,13 +31,14 @@ class IncidentStatusHistorySerializer(serializers.ModelSerializer):
 class IncidentSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source='client.user.get_full_name', read_only=True)
     vehicle_info = serializers.SerializerMethodField()
+    assignment = serializers.SerializerMethodField()
 
     class Meta:
         model = Incident
         fields = [
             'id', 'client', 'client_name', 'vehicle', 'vehicle_info', 'status',
             'priority', 'incident_type', 'description', 'latitude', 'longitude',
-            'address_text', 'ai_confidence', 'created_at', 'updated_at'
+            'address_text', 'ai_confidence', 'created_at', 'updated_at', 'assignment',
         ]
         read_only_fields = [
             'id', 'client', 'status', 'priority', 'incident_type',
@@ -48,6 +49,43 @@ class IncidentSerializer(serializers.ModelSerializer):
         if obj.vehicle:
             return f"{obj.vehicle.brand} {obj.vehicle.model} ({obj.vehicle.plate})"
         return None
+
+    def get_assignment(self, obj):
+        from apps.assignments.models import AssignmentStatus
+        qs = obj.assignments.select_related(
+            'workshop', 'technician', 'client_rating', 'payment'
+        ).order_by('-completed_at', '-id')
+        a = qs.filter(status=AssignmentStatus.COMPLETED).first()
+        if not a:
+            a = qs.exclude(status__in=[AssignmentStatus.OFFERED, AssignmentStatus.REJECTED]).first()
+        if not a:
+            return None
+        rating = None
+        try:
+            cr = a.client_rating
+            if cr:
+                rating = {'score': cr.score, 'comment': cr.comment}
+        except Exception:
+            pass
+        payment_info = None
+        try:
+            p = a.payment
+            payment_info = {
+                'id': p.id,
+                'status': p.status,
+                'total_amount': str(p.total_amount),
+            }
+        except Exception:
+            pass
+        return {
+            'id': a.id,
+            'status': a.status,
+            'workshop': {'id': a.workshop_id, 'name': a.workshop.name},
+            'technician_name': a.technician.name if a.technician else None,
+            'service_cost': str(a.service_cost) if a.service_cost is not None else None,
+            'rating': rating,
+            'payment': payment_info,
+        }
 
 
 class IncidentDetailSerializer(IncidentSerializer):

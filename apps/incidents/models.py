@@ -129,3 +129,26 @@ class IncidentStatusHistory(models.Model):
 
     def __str__(self):
         return f"Incident #{self.incident.id}: {self.previous_status} → {self.new_status}"
+
+
+class IncidentCycleMetric(models.Model):
+    """Métricas de un ciclo completo (asignación → cierre) para reportes y reentrenamiento IA."""
+
+    assignment = models.OneToOneField(
+        'assignments.Assignment',
+        on_delete=models.CASCADE,
+        related_name='cycle_metric',
+    )
+    seconds_to_assignment = models.PositiveIntegerField(null=True, blank=True)
+    seconds_to_arrival = models.PositiveIntegerField(null=True, blank=True)
+    seconds_total_resolution = models.PositiveIntegerField(null=True, blank=True)
+    service_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    ai_confidence = models.FloatField(null=True, blank=True)
+    ai_predicted_type = models.CharField(max_length=30, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'incident_cycle_metrics'
+
+    def __str__(self):
+        return f"CycleMetric assignment={self.assignment_id}"

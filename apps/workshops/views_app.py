@@ -5,8 +5,10 @@ from rest_framework.permissions import IsAuthenticated
 from apps.workshops.models import Workshop, WorkshopRating
 from apps.workshops.serializers import (
     WorkshopDetailSerializer, NearbyWorkshopsSerializer,
-    WorkshopRatingSerializer
+    WorkshopRatingSerializer, RateWorkshopSerializer,
 )
+from apps.assignments.models import Assignment, AssignmentStatus
+from django.db.models import Avg
 from geopy.distance import geodesic
 from decimal import Decimal
 
@@ -15,8 +17,9 @@ from decimal import Decimal
 @permission_classes([IsAuthenticated])
 def nearby_workshops(request):
     """Buscar talleres cercanos"""
-    lat = request.query_params.get('latitude')
-    lng = request.query_params.get('longitude')
+    # Compatibilidad con clientes que envían lat/lng o latitude/longitude
+    lat = request.query_params.get('latitude') or request.query_params.get('lat')
+    lng = request.query_params.get('longitude') or request.query_params.get('lng')
     radius = request.query_params.get('radius', 15)  # km
 
     if not lat or not lng:
@@ -28,7 +31,7 @@ def nearby_workshops(request):
     except ValueError:
         return Response({'error': 'Coordenadas inválidas'}, status=status.HTTP_400_BAD_REQUEST)
 
-    workshops = Workshop.objects.filter(is_active=True, is_verified=True)
+    workshops = Workshop.objects.filter(is_active=True, is_verified=True).prefetch_related('technicians')
 
     nearby = []
     for workshop in workshops:
@@ -37,6 +40,7 @@ def nearby_workshops(request):
 
         if distance <= min(radius, workshop.radius_km):
             workshop.distance = Decimal(str(round(distance, 2)))
+            workshop.distance_km = workshop.distance
             workshop.available_technicians = workshop.technicians.filter(is_available=True).count()
             nearby.append(workshop)
 
@@ -63,7 +67,7 @@ def workshop_detail(request, pk):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def rate_workshop(request, pk):
-    """Calificar taller post-servicio"""
+    """Calificar un servicio concreto (assignment completado). Recalcula rating_avg del taller."""
     try:
         workshop = Workshop.objects.get(pk=pk)
     except Workshop.DoesNotExist:
@@ -72,19 +76,37 @@ def rate_workshop(request, pk):
     if not hasattr(request.user, 'client_profile'):
         return Response({'error': 'Solo los clientes pueden calificar'}, status=status.HTTP_403_FORBIDDEN)
 
-    data = request.data.copy()
-    data['workshop'] = workshop.id
-    data['client'] = request.user.client_profile.id
+    ser = RateWorkshopSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    serializer = WorkshopRatingSerializer(data=data)
-    if serializer.is_valid():
-        serializer.save()
+    assignment_id = ser.validated_data['assignment_id']
+    try:
+        assignment = Assignment.objects.select_related('incident', 'workshop').get(id=assignment_id)
+    except Assignment.DoesNotExist:
+        return Response({'error': 'Asignación no encontrada'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Actualizar rating promedio del taller
-        ratings = workshop.ratings.all()
-        avg_rating = sum(r.score for r in ratings) / len(ratings)
-        workshop.rating_avg = round(avg_rating, 2)
-        workshop.save()
+    if assignment.workshop_id != int(pk):
+        return Response({'error': 'La asignación no pertenece a este taller'}, status=status.HTTP_400_BAD_REQUEST)
+    if assignment.incident.client_id != request.user.client_profile.id:
+        return Response({'error': 'No puedes calificar este servicio'}, status=status.HTTP_403_FORBIDDEN)
+    if assignment.status != AssignmentStatus.COMPLETED:
+        return Response({'error': 'El servicio aún no está completado'}, status=status.HTTP_400_BAD_REQUEST)
+    if WorkshopRating.objects.filter(assignment=assignment).exists():
+        return Response({'error': 'Ya enviaste una calificación para este servicio'}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    rating = WorkshopRating.objects.create(
+        workshop=workshop,
+        client=request.user.client_profile,
+        assignment=assignment,
+        score=ser.validated_data['score'],
+        comment=ser.validated_data.get('comment') or '',
+    )
+
+    agg = workshop.ratings.aggregate(avg=Avg('score'))['avg']
+    if agg is not None:
+        workshop.rating_avg = round(float(agg), 2)
+        workshop.save(update_fields=['rating_avg'])
+
+    out = WorkshopRatingSerializer(rating)
+    return Response(out.data, status=status.HTTP_201_CREATED)

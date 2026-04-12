@@ -7,6 +7,7 @@ from apps.assignments.models import Assignment, AssignmentStatus
 from apps.users.permissions import IsWorkshopOwner
 from apps.workshops.models import Workshop
 from django.utils import timezone
+from apps.notifications.sse_views import notify_incident_update
 
 
 @api_view(['GET'])
@@ -71,12 +72,18 @@ def incident_detail(request, pk):
 
     serializer = IncidentDetailSerializer(incident)
     data = serializer.data
+    available_technicians = list(
+        workshop.technicians.filter(is_available=True).values(
+            'id', 'name', 'phone', 'specialties', 'is_available'
+        )
+    )
     data['assignment'] = {
         'id': assignment.id,
         'status': assignment.status,
         'distance_km': assignment.distance_km,
         'technician': assignment.technician.name if assignment.technician else None,
     }
+    data['available_technicians'] = available_technicians
     return Response(data)
 
 
@@ -100,8 +107,17 @@ def accept_incident(request, pk):
         return Response({'error': 'No se encontró la asignación o ya fue procesada'}, status=status.HTTP_404_NOT_FOUND)
 
     technician_id = request.data.get('technician_id')
+    estimated_arrival_minutes = request.data.get('estimated_arrival_minutes')
     if not technician_id:
         return Response({'error': 'Debes seleccionar un técnico'}, status=status.HTTP_400_BAD_REQUEST)
+    if estimated_arrival_minutes is None:
+        return Response({'error': 'Debes enviar estimated_arrival_minutes'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        estimated_arrival_minutes = int(estimated_arrival_minutes)
+        if estimated_arrival_minutes <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return Response({'error': 'ETA inválido'}, status=status.HTTP_400_BAD_REQUEST)
 
     # Verificar que el técnico pertenece al taller
     technician = workshop.technicians.filter(id=technician_id, is_available=True).first()
@@ -111,21 +127,23 @@ def accept_incident(request, pk):
     # Aceptar assignment
     assignment.technician = technician
     assignment.status = AssignmentStatus.ACCEPTED
+    assignment.estimated_arrival_minutes = estimated_arrival_minutes
     assignment.accepted_at = timezone.now()
     assignment.save()
 
     # Actualizar incidente
     incident = assignment.incident
+    previous_status = incident.status
     incident.status = IncidentStatus.ASSIGNED
     incident.save()
 
     # Crear historial
     IncidentStatusHistory.objects.create(
         incident=incident,
-        previous_status=IncidentStatus.WAITING_WORKSHOP,
+        previous_status=previous_status,
         new_status=IncidentStatus.ASSIGNED,
         changed_by=request.user,
-        notes=f'Taller {workshop.name} aceptó el incidente. Técnico: {technician.name}'
+        notes=f'Taller {workshop.name} aceptó el incidente. Técnico: {technician.name}. ETA: {estimated_arrival_minutes} min'
     )
 
     # Rechazar otros assignments ofrecidos
@@ -146,10 +164,15 @@ def accept_incident(request, pk):
         Notification.objects.create(
             user=client_user,
             title='Taller asignado',
-            body=f'{workshop.name} atenderá tu emergencia. Técnico: {technician.name}',
+                body=f'¡{workshop.name} aceptó tu solicitud! {technician.name} llegará en ~{estimated_arrival_minutes} min.',
             notification_type=NotificationType.WORKSHOP_ASSIGNED,
             incident=incident,
-            data={'assignment_id': assignment.id, 'workshop_name': workshop.name}
+                data={
+                    'assignment_id': assignment.id,
+                    'workshop_name': workshop.name,
+                    'technician_name': technician.name,
+                    'eta': estimated_arrival_minutes,
+                }
         )
 
         if client_user.fcm_token:
@@ -158,10 +181,31 @@ def accept_incident(request, pk):
                 token=client_user.fcm_token,
                 title='Taller asignado',
                 body=f'{workshop.name} atenderá tu emergencia',
-                data={'incident_id': str(incident.id), 'type': 'workshop_assigned'}
+                data={
+                    'incident_id': str(incident.id),
+                    'type': 'workshop_assigned',
+                    'eta': str(estimated_arrival_minutes),
+                    'technician_name': technician.name,
+                }
             )
     except Exception as e:
         print(f"Error sending notification: {e}")
+
+    notify_incident_update(incident.id, {
+        'event': 'assigned',
+        'incident_id': incident.id,
+        'workshop': {
+            'id': workshop.id,
+            'name': workshop.name,
+            'logo': str(workshop.logo.url) if getattr(workshop, 'logo', None) else '',
+            'phone': workshop.phone,
+        },
+        'technician': {
+            'id': technician.id,
+            'name': technician.name,
+        },
+        'eta': estimated_arrival_minutes,
+    })
 
     return Response({
         'message': 'Incidente aceptado exitosamente',
@@ -216,6 +260,7 @@ def update_incident_status(request, pk):
         return Response({'error': 'No tienes una asignación activa para este incidente'}, status=status.HTTP_404_NOT_FOUND)
 
     new_status = request.data.get('status')
+    notes = request.data.get('notes', '')
     valid_statuses = ['in_route', 'arrived', 'in_service']
 
     if new_status not in valid_statuses:
@@ -223,21 +268,67 @@ def update_incident_status(request, pk):
 
     # Actualizar assignment
     assignment.status = new_status
+    if new_status == AssignmentStatus.ARRIVED and assignment.arrived_at is None:
+        assignment.arrived_at = timezone.now()
     assignment.save()
 
-    # Actualizar incidente si corresponde
+    # Actualizar incidente y traza
     incident = assignment.incident
-    if new_status == 'in_service':
+    previous_status = incident.status
+    if new_status in ['in_route', 'arrived', 'in_service']:
         incident.status = IncidentStatus.IN_PROGRESS
         incident.save()
 
-        IncidentStatusHistory.objects.create(
+    IncidentStatusHistory.objects.create(
+        incident=incident,
+        previous_status=previous_status,
+        new_status=incident.status,
+        changed_by=request.user,
+        notes=notes or f'Assignment actualizado a {new_status}'
+    )
+
+    event_payload = {'incident_id': incident.id, 'assignment_status': new_status}
+    if new_status == 'in_route':
+        event_payload['event'] = 'in_route'
+    elif new_status == 'arrived':
+        event_payload['event'] = 'arrived'
+    elif new_status == 'in_service':
+        event_payload['event'] = 'in_service'
+    notify_incident_update(incident.id, event_payload)
+
+    try:
+        from apps.notifications.models import Notification, NotificationType
+        from apps.notifications.firebase_service import FirebaseService
+        client_user = incident.client.user
+        label = {
+            'in_route': 'Técnico en camino',
+            'arrived': 'Técnico llegó',
+            'in_service': 'Servicio en curso',
+        }[new_status]
+        body = {
+            'in_route': f'{assignment.technician.name if assignment.technician else "El técnico"} está en camino.',
+            'arrived': f'{assignment.technician.name if assignment.technician else "El técnico"} llegó a tu ubicación.',
+            'in_service': 'El servicio está en ejecución.',
+        }[new_status]
+        Notification.objects.create(
+            user=client_user,
+            title=label,
+            body=body,
+            notification_type=NotificationType.STATUS_UPDATED,
             incident=incident,
-            previous_status=IncidentStatus.ASSIGNED,
-            new_status=IncidentStatus.IN_PROGRESS,
-            changed_by=request.user,
-            notes='Servicio iniciado'
+            data={'incident_id': incident.id, 'assignment_status': new_status},
+            push_sent=bool(client_user.fcm_token),
         )
+        if client_user.fcm_token:
+            firebase = FirebaseService()
+            firebase.send_notification(
+                token=client_user.fcm_token,
+                title=label,
+                body=body,
+                data={'incident_id': str(incident.id), 'type': 'status_updated', 'status': new_status},
+            )
+    except Exception as e:
+        print(f"Error notifying status update: {e}")
 
     return Response({'message': 'Estado actualizado', 'new_status': new_status})
 
@@ -275,6 +366,7 @@ def complete_incident(request, pk):
 
     # Actualizar incidente
     incident = assignment.incident
+    previous_status = incident.status
     incident.status = IncidentStatus.COMPLETED
     incident.closed_at = timezone.now()
     incident.save()
@@ -282,7 +374,7 @@ def complete_incident(request, pk):
     # Crear historial
     IncidentStatusHistory.objects.create(
         incident=incident,
-        previous_status=IncidentStatus.IN_PROGRESS,
+        previous_status=previous_status,
         new_status=IncidentStatus.COMPLETED,
         changed_by=request.user,
         notes=f'Servicio completado. Costo: ${service_cost}. {notes}'
@@ -293,6 +385,7 @@ def complete_incident(request, pk):
     workshop.save()
 
     # Crear pago
+    commission_rate = None
     try:
         from apps.payments.models import Payment, CommissionConfig, PaymentStatus
         from decimal import Decimal
@@ -341,10 +434,38 @@ def complete_incident(request, pk):
     except Exception as e:
         print(f"Error sending notification: {e}")
 
+    notify_incident_update(incident.id, {
+        'event': 'service_completed',
+        'incident_id': incident.id,
+        'cost': float(service_cost),
+    })
+
+    try:
+        from apps.incidents.models import IncidentCycleMetric
+
+        def _sec_delta(start, end):
+            if start and end:
+                return int((end - start).total_seconds())
+            return None
+
+        IncidentCycleMetric.objects.update_or_create(
+            assignment=assignment,
+            defaults={
+                'seconds_to_assignment': _sec_delta(incident.created_at, assignment.accepted_at),
+                'seconds_to_arrival': _sec_delta(assignment.accepted_at, assignment.arrived_at),
+                'seconds_total_resolution': _sec_delta(incident.created_at, assignment.completed_at),
+                'service_cost': service_cost,
+                'ai_confidence': incident.ai_confidence,
+                'ai_predicted_type': incident.incident_type or '',
+            },
+        )
+    except Exception as e:
+        print(f"Error saving cycle metric: {e}")
+
     return Response({
         'message': 'Servicio completado exitosamente',
         'service_cost': service_cost,
-        'commission_rate': commission_rate,
+        'commission_rate': commission_rate if commission_rate is not None else '10.00',
     })
 
 
@@ -366,6 +487,15 @@ def incident_history(request):
     history_data = []
     for assignment in assignments:
         incident = assignment.incident
+        rating_score = None
+        rating_comment = None
+        try:
+            cr = assignment.client_rating
+            if cr:
+                rating_score = cr.score
+                rating_comment = cr.comment
+        except Exception:
+            pass
         history_data.append({
             'assignment_id': assignment.id,
             'incident_id': incident.id,
@@ -379,6 +509,8 @@ def incident_history(request):
             'offered_at': assignment.offered_at,
             'accepted_at': assignment.accepted_at,
             'completed_at': assignment.completed_at,
+            'rating_score': rating_score,
+            'rating_comment': rating_comment,
         })
 
     return Response(history_data)
