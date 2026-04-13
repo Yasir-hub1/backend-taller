@@ -207,3 +207,126 @@ class TechnicianViewSet(viewsets.ModelViewSet):
             technician.save()
             return Response(TechnicianSerializer(technician).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsWorkshopOwner])
+def create_stripe_connect_account(request):
+    """Crear cuenta Stripe Connect para el taller"""
+    try:
+        owner_profile = request.user.owner_profile
+
+        # Verificar si ya tiene cuenta
+        if owner_profile.stripe_account_id:
+            return Response({
+                'error': 'Ya tienes una cuenta Stripe Connect',
+                'account_id': owner_profile.stripe_account_id
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Crear cuenta en Stripe
+        from apps.payments.stripe_service import StripeService
+        result = StripeService.create_connected_account(
+            email=request.user.email,
+            country='US'  # Ajustar según el país del taller
+        )
+
+        if 'error' in result:
+            return Response({'error': result['error']}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Guardar account_id
+        owner_profile.stripe_account_id = result['account_id']
+        owner_profile.save()
+
+        return Response({
+            'message': 'Cuenta Stripe Connect creada exitosamente',
+            'account_id': result['account_id']
+        })
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsWorkshopOwner])
+def create_stripe_onboarding_link(request):
+    """Generar enlace de onboarding de Stripe Connect"""
+    try:
+        owner_profile = request.user.owner_profile
+
+        # Si no tiene cuenta, crearla primero
+        if not owner_profile.stripe_account_id:
+            from apps.payments.stripe_service import StripeService
+            result = StripeService.create_connected_account(
+                email=request.user.email,
+                country='US'
+            )
+
+            if 'error' in result:
+                return Response({'error': result['error']}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            owner_profile.stripe_account_id = result['account_id']
+            owner_profile.save()
+
+        # Generar enlace de onboarding
+        from apps.payments.stripe_service import StripeService
+        from django.conf import settings
+
+        base_url = request.build_absolute_uri('/')[:-1]  # Quitar la última /
+        refresh_url = f"{base_url}/workshop-owner/profile?stripe_refresh=1"
+        return_url = f"{base_url}/workshop-owner/profile?stripe_success=1"
+
+        result = StripeService.create_stripe_account_link(
+            account_id=owner_profile.stripe_account_id,
+            refresh_url=refresh_url,
+            return_url=return_url
+        )
+
+        if 'error' in result:
+            return Response({'error': result['error']}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            'url': result['url'],
+            'account_id': owner_profile.stripe_account_id
+        })
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsWorkshopOwner])
+def stripe_connect_status(request):
+    """Verificar estado de la cuenta Stripe Connect"""
+    try:
+        owner_profile = request.user.owner_profile
+
+        if not owner_profile.stripe_account_id:
+            return Response({
+                'connected': False,
+                'account_id': None,
+                'details_submitted': False,
+                'charges_enabled': False
+            })
+
+        # Verificar estado en Stripe
+        import stripe
+        from django.conf import settings
+
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+
+        try:
+            account = stripe.Account.retrieve(owner_profile.stripe_account_id)
+
+            return Response({
+                'connected': True,
+                'account_id': owner_profile.stripe_account_id,
+                'details_submitted': account.details_submitted,
+                'charges_enabled': account.charges_enabled,
+                'payouts_enabled': account.payouts_enabled if hasattr(account, 'payouts_enabled') else False
+            })
+        except stripe.error.StripeError as e:
+            return Response({
+                'connected': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

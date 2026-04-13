@@ -11,6 +11,7 @@ from apps.users.serializers import (
     ChangePasswordSerializer, FCMTokenSerializer
 )
 from apps.users.permissions import IsClient
+from django.utils import timezone
 
 
 @api_view(['POST'])
@@ -107,3 +108,49 @@ def change_password(request):
         request.user.save()
         return Response({'message': 'Contraseña actualizada exitosamente'})
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsClient])
+def test_push_notification(request):
+    """
+    Endpoint de prueba para enviar notificación push al usuario autenticado.
+    Útil para testing de Firebase/Expo push.
+    """
+    if not request.user.fcm_token:
+        return Response({
+            'error': 'No tienes token FCM registrado. Registra uno primero con POST /auth/fcm-token/'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    title = request.data.get('title', 'Prueba de notificación')
+    body = request.data.get('body', 'Esta es una notificación de prueba desde el backend')
+
+    try:
+        from apps.notifications.firebase_service import FirebaseService
+        firebase = FirebaseService()
+        result = firebase.send_notification(
+            token=request.user.fcm_token,
+            title=title,
+            body=body,
+            data={
+                'type': 'test',
+                'user_id': str(request.user.id),
+                'timestamp': str(timezone.now().isoformat())
+            }
+        )
+
+        if result:
+            return Response({
+                'message': 'Notificación enviada exitosamente',
+                'token_type': 'expo' if request.user.fcm_token.startswith('ExponentPushToken') else 'fcm',
+                'result': str(result)[:200]
+            })
+        else:
+            return Response({
+                'error': 'Error al enviar notificación. Revisa logs del servidor.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    except Exception as e:
+        return Response({
+            'error': f'Error: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -22,7 +22,9 @@
       "Bash(chmod:*)",
       "Bash(xargs:*)",
       "Bash(python:*)",
-      "Bash(head:*)"
+      "Bash(head:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.stripe.com)"
     ]
   }
 }

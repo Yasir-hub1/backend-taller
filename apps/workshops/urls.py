@@ -17,6 +17,11 @@ web_patterns = [
     path('dashboard/', views_web.workshop_dashboard, name='web-dashboard'),
     path('earnings/', views_web.workshop_earnings, name='web-earnings'),
 
+    # Stripe Connect
+    path('stripe/connect/create/', views_web.create_stripe_connect_account, name='web-stripe-create'),
+    path('stripe/connect/onboarding/', views_web.create_stripe_onboarding_link, name='web-stripe-onboarding'),
+    path('stripe/connect/status/', views_web.stripe_connect_status, name='web-stripe-status'),
+
     # Técnicos
     path('technicians/', views_web.TechnicianViewSet.as_view({
         'get': 'list',

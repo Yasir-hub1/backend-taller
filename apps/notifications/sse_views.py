@@ -7,15 +7,29 @@ django-eventstream usa la base de datos internamente (sin Redis).
 """
 from django_eventstream import send_event
 from django.http import HttpResponse
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, renderer_classes
 from rest_framework.permissions import IsAuthenticated
 from django_eventstream.views import events as eventstream_events
+from rest_framework.renderers import BaseRenderer
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, AuthenticationFailed
 from apps.incidents.models import Incident
 
 
+class _SseCompatibleRenderer(BaseRenderer):
+    """
+    DRF negocia contenido según Accept; las respuestas streaming de django-eventstream
+    no pasan por renderers JSON y el cliente (p. ej. EventSource) puede recibir 406.
+    """
+    media_type = '*/*'
+    format = 'sse'
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
+
+
 @api_view(['GET'])
+@renderer_classes([_SseCompatibleRenderer])
 @permission_classes([IsAuthenticated])
 def notifications_stream(request):
     """
@@ -28,6 +42,7 @@ def notifications_stream(request):
 
 
 @api_view(['GET'])
+@renderer_classes([_SseCompatibleRenderer])
 def incident_stream(request, incident_id: int):
     """
     SSE por incidente para clientes móviles.

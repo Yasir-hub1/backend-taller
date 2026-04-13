@@ -23,17 +23,19 @@ class StripeService:
         return float(config.percentage) if config else 10.0
 
     @staticmethod
-    def create_payment_intent(amount_usd: float, customer_id: str, metadata: dict) -> dict:
+    def create_payment_intent(amount_usd: float, customer_id: str, metadata: dict, payment_method_id: str = None) -> dict:
         """
         Crea el intento de pago para el cliente.
+        Si se proporciona payment_method_id, crea y confirma en un solo paso (flujo oficial Stripe).
 
         Args:
             amount_usd: Monto en dólares
             customer_id: ID del customer en Stripe
             metadata: Datos adicionales (incident_id, assignment_id, etc.)
+            payment_method_id: ID del PaymentMethod (si se confirma automáticamente)
 
         Returns:
-            dict con client_secret y payment_intent_id
+            dict con client_secret, payment_intent_id y status
         """
         if not settings.STRIPE_SECRET_KEY:
             return {
@@ -47,20 +49,43 @@ class StripeService:
                 'amount': int(amount_usd * 100),  # Stripe usa centavos
                 'currency': 'usd',
                 'metadata': metadata,
-                'automatic_payment_methods': {'enabled': True},
             }
-            if customer_id:
-                payload['customer'] = customer_id
+
+            # Si hay payment_method_id, crear y confirmar en un solo paso
+            if payment_method_id:
+                payload['payment_method'] = payment_method_id
+                payload['confirm'] = True
+                payload['off_session'] = False
+                if customer_id:
+                    payload['customer'] = customer_id
+            else:
+                # Cliente confirma en la app (CardField → PaymentMethod → confirm)
+                payload['automatic_payment_methods'] = {'enabled': True}
+                if customer_id:
+                    payload['customer'] = customer_id
+
             intent = stripe.PaymentIntent.create(**payload)
+
             return {
                 'client_secret': intent.client_secret,
-                'payment_intent_id': intent.id
+                'payment_intent_id': intent.id,
+                'status': intent.status,
+                'requires_action': intent.status == 'requires_action',
+                'next_action': intent.next_action if hasattr(intent, 'next_action') else None
+            }
+        except stripe.error.CardError as e:
+            return {
+                'error': e.user_message or str(e),
+                'client_secret': None,
+                'payment_intent_id': None,
+                'status': 'failed'
             }
         except Exception as e:
             return {
                 'error': str(e),
                 'client_secret': None,
-                'payment_intent_id': None
+                'payment_intent_id': None,
+                'status': 'failed'
             }
 
     @staticmethod

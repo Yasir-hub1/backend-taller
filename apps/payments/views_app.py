@@ -17,12 +17,14 @@ from apps.notifications.sse_views import notify_incident_update
 def create_payment_intent(request):
     """
     Crear PaymentIntent en Stripe para que el cliente pague el servicio.
+    Si se proporciona payment_method_id, adjunta el método y confirma automáticamente.
     """
     serializer = PaymentIntentSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     assignment_id = serializer.validated_data['assignment_id']
+    payment_method_id = request.data.get('payment_method_id', None)
 
     try:
         assignment = Assignment.objects.select_related('incident', 'payment').get(id=assignment_id)
@@ -51,11 +53,12 @@ def create_payment_intent(request):
     client_profile = request.user.client_profile
     stripe_customer_id = client_profile.stripe_customer_id if client_profile.stripe_customer_id else None
 
-    # Crear PaymentIntent
+    # Crear PaymentIntent (con confirmación automática si hay payment_method_id)
     stripe_service = StripeService()
     result = stripe_service.create_payment_intent(
         amount_usd=float(payment.total_amount),
         customer_id=stripe_customer_id if stripe_customer_id else '',
+        payment_method_id=payment_method_id,
         metadata={
             'payment_id': str(payment.id),
             'assignment_id': str(assignment.id),
@@ -65,18 +68,30 @@ def create_payment_intent(request):
     )
 
     if 'error' in result:
-        return Response({'error': result['error']}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({'error': result['error']}, status=status.HTTP_400_BAD_REQUEST)
 
     # Guardar el payment_intent_id
     payment.stripe_payment_intent_id = result['payment_intent_id']
     payment.save()
 
-    return Response({
+    # Respuesta según el flujo
+    response_data = {
         'payment_id': payment.id,
-        'client_secret': result['client_secret'],
         'payment_intent_id': result['payment_intent_id'],
         'amount': payment.total_amount,
-    })
+        'status': result.get('status'),
+    }
+
+    # Si requiere acción adicional (3D Secure), devolver client_secret
+    if result.get('requires_action'):
+        response_data['requires_action'] = True
+        response_data['client_secret'] = result['client_secret']
+
+    # Si no se proporcionó payment_method_id, devolver client_secret para flujo manual
+    if not payment_method_id:
+        response_data['client_secret'] = result['client_secret']
+
+    return Response(response_data)
 
 
 @api_view(['POST'])

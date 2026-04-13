@@ -10,6 +10,7 @@ class NotificationType(models.TextChoices):
     PAYMENT_CONFIRMED = 'payment_confirmed', 'Pago confirmado'
     NEW_REQUEST = 'new_request', 'Nueva solicitud (taller)'
     STATUS_UPDATED = 'status_updated', 'Estado actualizado'
+    NEW_RATING = 'new_rating', 'Nueva calificación (taller)'
 
 
 class Notification(models.Model):

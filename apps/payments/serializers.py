@@ -35,6 +35,7 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 class PaymentIntentSerializer(serializers.Serializer):
     assignment_id = serializers.IntegerField(required=True)
+    payment_method_id = serializers.CharField(required=False, allow_blank=True)
 
 
 class PaymentConfirmSerializer(serializers.Serializer):

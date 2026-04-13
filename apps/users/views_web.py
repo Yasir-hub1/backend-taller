@@ -69,3 +69,23 @@ def profile(request):
             serializer.save()
             return Response(UserSerializer(request.user).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_fcm_token(request):
+    """
+    Actualizar FCM token para notificaciones push.
+    Usado por talleres en el panel web (si implementan push web).
+    """
+    from apps.users.serializers import FCMTokenSerializer
+
+    serializer = FCMTokenSerializer(data=request.data)
+    if serializer.is_valid():
+        request.user.fcm_token = serializer.validated_data['fcm_token']
+        request.user.save(update_fields=['fcm_token'])
+        return Response({
+            'message': 'Token FCM actualizado',
+            'token_type': 'expo' if request.user.fcm_token.startswith('ExponentPushToken') else 'fcm'
+        })
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
