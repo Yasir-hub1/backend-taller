@@ -6,6 +6,7 @@ class Role(models.TextChoices):
     ADMIN = 'admin', 'Administrador'
     WORKSHOP_OWNER = 'workshop_owner', 'Dueño de Taller'
     CLIENT = 'client', 'Cliente'
+    TECHNICIAN = 'technician', 'Técnico'
 
 
 class User(AbstractUser):

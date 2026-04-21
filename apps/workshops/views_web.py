@@ -5,12 +5,19 @@ from apps.workshops.models import Workshop, Technician
 from apps.workshops.serializers import (
     WorkshopSerializer, WorkshopDetailSerializer, WorkshopCreateSerializer,
     WorkshopDashboardSerializer, TechnicianSerializer, TechnicianCreateSerializer,
-    TechnicianAvailabilitySerializer, TechnicianLocationUpdateSerializer
+    TechnicianAvailabilitySerializer, TechnicianLocationUpdateSerializer,
+    TechnicianAppAccessSerializer,
+    _split_technician_name,
 )
+from apps.users.models import Role
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 from apps.users.permissions import IsWorkshopOwner
 from apps.assignments.models import Assignment, AssignmentStatus
 from apps.payments.models import Payment, PaymentStatus
 from django.utils import timezone
+from django.db import transaction
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -171,7 +178,7 @@ class TechnicianViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         try:
             workshop = Workshop.objects.get(owner=self.request.user.owner_profile)
-            return Technician.objects.filter(workshop=workshop).order_by('-id')
+            return Technician.objects.filter(workshop=workshop).select_related('user').order_by('-id')
         except Workshop.DoesNotExist:
             return Technician.objects.none()
 
@@ -207,6 +214,36 @@ class TechnicianViewSet(viewsets.ModelViewSet):
             technician.save()
             return Response(TechnicianSerializer(technician).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], url_path='app-access')
+    def app_access(self, request, pk=None):
+        """Crear usuario técnico (app móvil) y vincularlo a un técnico existente."""
+        technician = self.get_object()
+        if technician.user_id:
+            return Response(
+                {'error': 'Este técnico ya tiene cuenta para la app'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        ser = TechnicianAppAccessSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+        d = ser.validated_data
+        first, last = _split_technician_name(technician.name)
+        if not first:
+            first = d['app_username'][:30]
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=d['app_username'],
+                email=d['app_email'],
+                password=d['app_password'],
+                first_name=first,
+                last_name=last,
+                phone=technician.phone or '',
+                role=Role.TECHNICIAN,
+            )
+            technician.user = user
+            technician.save(update_fields=['user'])
+        return Response(TechnicianSerializer(technician).data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])

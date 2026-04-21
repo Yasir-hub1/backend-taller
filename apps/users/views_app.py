@@ -2,6 +2,7 @@ from rest_framework import status, generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from apps.users.models import Role
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import authenticate
@@ -44,8 +45,16 @@ def login(request):
     if user is None:
         return Response({'error': 'Credenciales inválidas'}, status=status.HTTP_401_UNAUTHORIZED)
 
-    if user.role != 'client':
-        return Response({'error': 'Esta cuenta no es de cliente'}, status=status.HTTP_403_FORBIDDEN)
+    if user.role not in (Role.CLIENT, Role.TECHNICIAN):
+        return Response(
+            {'error': 'Esta cuenta no puede usar la app móvil'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if user.role == Role.TECHNICIAN and not getattr(user, 'technician_profile', None):
+        return Response(
+            {'error': 'Cuenta de técnico sin perfil vinculado. Contacta al administrador.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
     refresh = RefreshToken.for_user(user)
     return Response({
@@ -71,25 +80,32 @@ def logout(request):
 
 
 @api_view(['GET', 'PUT'])
-@permission_classes([IsClient])
+@permission_classes([IsAuthenticated])
 def profile(request):
-    """Ver y actualizar perfil del cliente"""
+    """Ver y actualizar perfil (cliente o técnico)."""
+    user = request.user
+    if user.role not in (Role.CLIENT, Role.TECHNICIAN):
+        return Response({'error': 'Perfil no disponible para este rol'}, status=status.HTTP_403_FORBIDDEN)
+    if user.role == Role.TECHNICIAN and not getattr(user, 'technician_profile', None):
+        return Response({'error': 'Sin perfil de técnico'}, status=status.HTTP_403_FORBIDDEN)
+
     if request.method == 'GET':
-        serializer = UserSerializer(request.user)
+        serializer = UserSerializer(user)
         return Response(serializer.data)
 
-    elif request.method == 'PUT':
-        serializer = ProfileUpdateSerializer(request.user, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(UserSerializer(request.user).data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    serializer = ProfileUpdateSerializer(user, data=request.data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(UserSerializer(user).data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
-@permission_classes([IsClient])
+@permission_classes([IsAuthenticated])
 def fcm_token(request):
     """Actualizar FCM token para notificaciones push"""
+    if request.user.role not in (Role.CLIENT, Role.TECHNICIAN):
+        return Response({'error': 'No permitido'}, status=status.HTTP_403_FORBIDDEN)
     serializer = FCMTokenSerializer(data=request.data)
     if serializer.is_valid():
         request.user.fcm_token = serializer.validated_data['fcm_token']
@@ -99,9 +115,11 @@ def fcm_token(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsClient])
+@permission_classes([IsAuthenticated])
 def change_password(request):
     """Cambiar contraseña"""
+    if request.user.role not in (Role.CLIENT, Role.TECHNICIAN):
+        return Response({'error': 'No permitido'}, status=status.HTTP_403_FORBIDDEN)
     serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
     if serializer.is_valid():
         request.user.set_password(serializer.validated_data['new_password'])

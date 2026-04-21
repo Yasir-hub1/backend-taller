@@ -191,6 +191,60 @@ def accept_incident(request, pk):
     except Exception as e:
         print(f"Error sending notification: {e}")
 
+    # Push al técnico (app móvil) — Fase 6 del flujo operativo
+    try:
+        tech_user = getattr(technician, 'user', None)
+        if tech_user:
+            from apps.notifications.models import Notification as AppNotification, NotificationType as NT
+            from apps.notifications.firebase_service import FirebaseService
+
+            addr = (incident.address_text or 'Ver ubicación en mapa').strip()
+            if len(addr) > 140:
+                addr = addr[:137] + '…'
+
+            vehicle_line = ''
+            v = incident.vehicle
+            if v:
+                parts = [p for p in (v.brand, v.model, v.color) if p]
+                vehicle_line = ' '.join(parts)
+                if v.plate:
+                    vehicle_line = f'{vehicle_line} · {v.plate}'.strip(' ·') if vehicle_line else v.plate
+
+            problem = incident.get_incident_type_display()
+            body_tech = (
+                f'{problem} en {addr}. '
+                f'Cliente: {vehicle_line or "vehículo"}. ETA ~{estimated_arrival_minutes} min.'
+            )
+
+            AppNotification.objects.create(
+                user=tech_user,
+                title='Nueva orden asignada',
+                body=body_tech,
+                notification_type=NT.TECHNICIAN_ASSIGNED,
+                incident=incident,
+                data={
+                    'incident_id': incident.id,
+                    'assignment_id': assignment.id,
+                    'workshop_name': workshop.name,
+                    'eta': estimated_arrival_minutes,
+                },
+                push_sent=bool(tech_user.fcm_token),
+            )
+            if tech_user.fcm_token:
+                FirebaseService().send_notification(
+                    token=tech_user.fcm_token,
+                    title='Nueva orden asignada',
+                    body=body_tech,
+                    data={
+                        'type': 'technician_assignment',
+                        'incident_id': str(incident.id),
+                        'assignment_id': str(assignment.id),
+                        'eta': str(estimated_arrival_minutes),
+                    },
+                )
+    except Exception as e:
+        print(f'Error notifying technician: {e}')
+
     notify_incident_update(incident.id, {
         'event': 'assigned',
         'incident_id': incident.id,
@@ -300,32 +354,51 @@ def update_incident_status(request, pk):
         from apps.notifications.models import Notification, NotificationType
         from apps.notifications.firebase_service import FirebaseService
         client_user = incident.client.user
-        label = {
-            'in_route': 'Técnico en camino',
-            'arrived': 'Técnico llegó',
-            'in_service': 'Servicio en curso',
-        }[new_status]
-        body = {
-            'in_route': f'{assignment.technician.name if assignment.technician else "El técnico"} está en camino.',
-            'arrived': f'{assignment.technician.name if assignment.technician else "El técnico"} llegó a tu ubicación.',
-            'in_service': 'El servicio está en ejecución.',
-        }[new_status]
+        tech_name = assignment.technician.name if assignment.technician else 'El técnico'
+        eta = assignment.estimated_arrival_minutes
+
+        if new_status == 'in_route':
+            title = f'{tech_name} va en camino'
+            body = (
+                f'{tech_name} salió hacia tu ubicación.'
+                + (f' Tiempo estimado ~{eta} min.' if eta else '')
+            )
+            push_type = 'technician_in_route'
+        elif new_status == 'arrived':
+            title = f'{tech_name} llegó'
+            body = f'{tech_name} está en el lugar del incidente.'
+            push_type = 'status_updated'
+        else:
+            title = 'Servicio en curso'
+            body = f'{tech_name} está atendiendo el servicio.'
+            push_type = 'status_updated'
+
         Notification.objects.create(
             user=client_user,
-            title=label,
+            title=title,
             body=body,
             notification_type=NotificationType.STATUS_UPDATED,
             incident=incident,
-            data={'incident_id': incident.id, 'assignment_status': new_status},
+            data={
+                'incident_id': incident.id,
+                'assignment_status': new_status,
+                'technician_name': tech_name,
+            },
             push_sent=bool(client_user.fcm_token),
         )
         if client_user.fcm_token:
             firebase = FirebaseService()
             firebase.send_notification(
                 token=client_user.fcm_token,
-                title=label,
+                title=title,
                 body=body,
-                data={'incident_id': str(incident.id), 'type': 'status_updated', 'status': new_status},
+                data={
+                    'incident_id': str(incident.id),
+                    'type': push_type,
+                    'status': new_status,
+                    'technician_name': tech_name,
+                    **({'eta': str(eta)} if eta is not None else {}),
+                },
             )
     except Exception as e:
         print(f"Error notifying status update: {e}")

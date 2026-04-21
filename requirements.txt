@@ -16,6 +16,7 @@ whitenoise==6.7.0
 django-q2==1.7.3
 django-eventstream==5.3.0
 daphne==4.1.2
+channels==4.2.0
 
 # IA
 openai>=1.0.0

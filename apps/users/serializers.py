@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
-from apps.users.models import User, ClientProfile, WorkshopOwnerProfile
+from apps.users.models import User, ClientProfile, WorkshopOwnerProfile, Role
+from apps.workshops.models import Technician
 from apps.payments.stripe_service import StripeService
 
 
@@ -18,18 +19,50 @@ class WorkshopOwnerProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'stripe_account_id']
 
 
+class TechnicianProfileSerializer(serializers.ModelSerializer):
+    workshop_name = serializers.CharField(source='workshop.name', read_only=True)
+
+    class Meta:
+        model = Technician
+        fields = [
+            'id', 'name', 'phone', 'workshop', 'workshop_name',
+            'specialties', 'photo', 'is_available',
+        ]
+        read_only_fields = ['id', 'workshop']
+
+
 class UserSerializer(serializers.ModelSerializer):
-    client_profile = ClientProfileSerializer(read_only=True)
-    owner_profile = WorkshopOwnerProfileSerializer(read_only=True)
+    client_profile = serializers.SerializerMethodField()
+    owner_profile = serializers.SerializerMethodField()
+    technician_profile = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name',
             'role', 'phone', 'avatar', 'fcm_token', 'is_verified',
-            'created_at', 'updated_at', 'client_profile', 'owner_profile'
+            'created_at', 'updated_at', 'client_profile', 'owner_profile',
+            'technician_profile',
         ]
         read_only_fields = ['id', 'role', 'is_verified', 'created_at', 'updated_at']
+
+    def get_client_profile(self, obj):
+        try:
+            return ClientProfileSerializer(obj.client_profile).data
+        except ClientProfile.DoesNotExist:
+            return None
+
+    def get_owner_profile(self, obj):
+        try:
+            return WorkshopOwnerProfileSerializer(obj.owner_profile).data
+        except WorkshopOwnerProfile.DoesNotExist:
+            return None
+
+    def get_technician_profile(self, obj):
+        try:
+            return TechnicianProfileSerializer(obj.technician_profile).data
+        except Technician.DoesNotExist:
+            return None
 
 
 class RegisterClientSerializer(serializers.ModelSerializer):
@@ -64,10 +97,10 @@ class RegisterClientSerializer(serializers.ModelSerializer):
             'emergency_contact_phone': validated_data.pop('emergency_contact_phone', ''),
         }
 
-        # Crear usuario
+        # Crear usuario (solo registro público de clientes)
         user = User.objects.create_user(
             **validated_data,
-            role='client'
+            role=Role.CLIENT
         )
 
         # Crear perfil de cliente
@@ -166,6 +199,11 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             if 'national_id' in validated_data:
                 profile.national_id = validated_data['national_id']
                 profile.save()
+
+        elif instance.role == Role.TECHNICIAN and hasattr(instance, 'technician_profile'):
+            tech = instance.technician_profile
+            tech.phone = instance.phone
+            tech.save(update_fields=['phone'])
 
         return instance
 

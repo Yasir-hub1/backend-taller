@@ -28,12 +28,19 @@ class IncidentViewSet(viewsets.ModelViewSet):
         aq = Assignment.objects.select_related(
             'workshop', 'technician', 'client_rating', 'payment'
         )
-        return (
+        qs = (
             Incident.objects.filter(client=self.request.user.client_profile)
             .select_related('vehicle', 'client__user')
             .prefetch_related(Prefetch('assignments', queryset=aq))
-            .order_by('-created_at')
         )
+        # La app móvil envía ?status=a,b,c (p. ej. activos o un solo estado)
+        raw = self.request.query_params.get('status')
+        if raw:
+            allowed = {c[0] for c in IncidentStatus.choices}
+            statuses = [s for s in (p.strip() for p in raw.split(',')) if s and s in allowed]
+            if statuses:
+                qs = qs.filter(status__in=statuses)
+        return qs.order_by('-created_at')
 
     def perform_create(self, serializer):
         incident = serializer.save(

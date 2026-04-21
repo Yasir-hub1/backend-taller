@@ -4,6 +4,8 @@ from django.db import models
 class NotificationType(models.TextChoices):
     INCIDENT_CREATED = 'incident_created', 'Incidente creado'
     WORKSHOP_ASSIGNED = 'workshop_assigned', 'Taller asignado'
+    TECHNICIAN_ASSIGNED = 'technician_assigned', 'Orden asignada al técnico'
+    TECHNICIAN_NEARBY = 'technician_nearby', 'Técnico cerca de tu ubicación'
     TECHNICIAN_IN_ROUTE = 'technician_in_route', 'Técnico en camino'
     SERVICE_COMPLETED = 'service_completed', 'Servicio completado'
     PAYMENT_REQUIRED = 'payment_required', 'Pago requerido'

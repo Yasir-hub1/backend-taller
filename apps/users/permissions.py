@@ -25,6 +25,18 @@ class IsClient(BasePermission):
         return request.user.is_authenticated and request.user.role == 'client'
 
 
+class IsTechnician(BasePermission):
+    """Usuario con rol técnico (app móvil de campo)."""
+
+    def has_permission(self, request, view):
+        return (
+            request.user.is_authenticated
+            and request.user.role == 'technician'
+            and hasattr(request.user, 'technician_profile')
+            and request.user.technician_profile is not None
+        )
+
+
 class IsAdminOrWorkshopOwner(BasePermission):
     """
     Permite acceso a admins o dueños de taller.

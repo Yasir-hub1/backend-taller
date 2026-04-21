@@ -44,6 +44,13 @@ class Workshop(models.Model):
 
 class Technician(models.Model):
     workshop = models.ForeignKey(Workshop, on_delete=models.CASCADE, related_name='technicians')
+    user = models.OneToOneField(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='technician_profile',
+    )
     name = models.CharField(max_length=100)
     phone = models.CharField(max_length=20)
     specialties = models.JSONField(default=list)  # Lista de ServiceCategory

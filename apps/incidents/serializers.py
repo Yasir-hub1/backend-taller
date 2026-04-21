@@ -77,11 +77,28 @@ class IncidentSerializer(serializers.ModelSerializer):
             }
         except Exception:
             pass
+        tech = a.technician
+        technician_payload = None
+        if tech:
+            technician_payload = {
+                'id': tech.id,
+                'name': tech.name,
+                'phone': tech.phone or '',
+                'current_latitude': tech.current_latitude,
+                'current_longitude': tech.current_longitude,
+                'last_location_update': (
+                    tech.last_location_update.isoformat()
+                    if tech.last_location_update
+                    else None
+                ),
+            }
         return {
             'id': a.id,
             'status': a.status,
             'workshop': {'id': a.workshop_id, 'name': a.workshop.name},
-            'technician_name': a.technician.name if a.technician else None,
+            'technician': technician_payload,
+            'technician_name': tech.name if tech else None,
+            'estimated_arrival_minutes': a.estimated_arrival_minutes,
             'service_cost': str(a.service_cost) if a.service_cost is not None else None,
             'rating': rating,
             'payment': payment_info,
@@ -168,5 +185,7 @@ class IncidentStatusUpdateSerializer(serializers.Serializer):
 
 
 class IncidentCompleteSerializer(serializers.Serializer):
-    service_cost = serializers.DecimalField(max_digits=10, decimal_places=2, required=True, min_value=0)
+    service_cost = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=True, min_value=Decimal('0')
+    )
     notes = serializers.CharField(required=False, allow_blank=True)

@@ -39,6 +39,9 @@ web_patterns = [
     path('technicians/<int:pk>/location/', views_web.TechnicianViewSet.as_view({
         'patch': 'location'
     }), name='web-technicians-location'),
+    path('technicians/<int:pk>/app-access/', views_web.TechnicianViewSet.as_view({
+        'post': 'app_access'
+    }), name='web-technicians-app-access'),
 ]
 
 # Admin - /api/admin-api/workshops/

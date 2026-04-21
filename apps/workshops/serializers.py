@@ -1,8 +1,21 @@
 import json
 
+from django.contrib.auth import get_user_model
+from django.db import transaction
 from rest_framework import serializers
 from apps.workshops.models import Workshop, Technician, WorkshopRating
+from apps.users.models import Role
 from decimal import Decimal
+
+User = get_user_model()
+
+
+def _split_technician_name(full_name):
+    full_name = (full_name or '').strip()
+    if not full_name:
+        return '', ''
+    parts = full_name.split(None, 1)
+    return parts[0], (parts[1] if len(parts) > 1 else '')
 
 
 def parse_services_list(value):
@@ -25,13 +38,25 @@ def parse_services_list(value):
 
 
 class TechnicianSerializer(serializers.ModelSerializer):
+    has_app_access = serializers.SerializerMethodField()
+    app_username = serializers.SerializerMethodField()
+
     class Meta:
         model = Technician
         fields = [
             'id', 'name', 'phone', 'specialties', 'is_available',
-            'current_latitude', 'current_longitude', 'last_location_update', 'photo'
+            'current_latitude', 'current_longitude', 'last_location_update', 'photo',
+            'has_app_access', 'app_username',
         ]
-        read_only_fields = ['id']
+        read_only_fields = ['id', 'has_app_access', 'app_username']
+
+    def get_has_app_access(self, obj):
+        return obj.user_id is not None
+
+    def get_app_username(self, obj):
+        if not obj.user_id:
+            return None
+        return getattr(obj.user, 'username', None)
 
 
 class WorkshopRatingSerializer(serializers.ModelSerializer):
@@ -122,9 +147,95 @@ class WorkshopDashboardSerializer(serializers.Serializer):
 
 
 class TechnicianCreateSerializer(serializers.ModelSerializer):
+    """
+    Alta de técnico. Opcionalmente crea User (role=technician) para la app móvil.
+    """
+
+    enable_app_access = serializers.BooleanField(default=False, write_only=True)
+    app_username = serializers.CharField(required=False, allow_blank=True, write_only=True, max_length=150)
+    app_email = serializers.EmailField(required=False, allow_blank=True, write_only=True)
+    app_password = serializers.CharField(
+        required=False, write_only=True, min_length=6, max_length=128, style={'input_type': 'password'}
+    )
+    app_password_confirm = serializers.CharField(
+        required=False, write_only=True, style={'input_type': 'password'}
+    )
+
     class Meta:
         model = Technician
-        fields = ['name', 'phone', 'specialties', 'photo']
+        fields = [
+            'name', 'phone', 'specialties', 'photo',
+            'enable_app_access', 'app_username', 'app_email', 'app_password', 'app_password_confirm',
+        ]
+
+    def validate(self, attrs):
+        enable = attrs.get('enable_app_access', False)
+        if not enable:
+            return attrs
+        u = (attrs.get('app_username') or '').strip()
+        e = (attrs.get('app_email') or '').strip()
+        p1 = attrs.get('app_password')
+        p2 = attrs.get('app_password_confirm')
+        if not u:
+            raise serializers.ValidationError({'app_username': 'Usuario requerido para acceso a la app'})
+        if not e:
+            raise serializers.ValidationError({'app_email': 'Email requerido para acceso a la app'})
+        if not p1 or not p2:
+            raise serializers.ValidationError({'app_password': 'Contraseña requerida'})
+        if p1 != p2:
+            raise serializers.ValidationError({'app_password_confirm': 'Las contraseñas no coinciden'})
+        if User.objects.filter(username__iexact=u).exists():
+            raise serializers.ValidationError({'app_username': 'Este nombre de usuario ya existe'})
+        if User.objects.filter(email__iexact=e).exists():
+            raise serializers.ValidationError({'app_email': 'Este email ya está registrado'})
+        return attrs
+
+    def create(self, validated_data):
+        enable = validated_data.pop('enable_app_access', False)
+        app_username = (validated_data.pop('app_username', '') or '').strip()
+        app_email = (validated_data.pop('app_email', '') or '').strip()
+        app_password = validated_data.pop('app_password', None)
+        validated_data.pop('app_password_confirm', None)
+        workshop = validated_data.pop('workshop')
+
+        with transaction.atomic():
+            tech = Technician.objects.create(workshop=workshop, **validated_data)
+            if enable and app_password:
+                first, last = _split_technician_name(tech.name)
+                user = User.objects.create_user(
+                    username=app_username,
+                    email=app_email,
+                    password=app_password,
+                    first_name=first,
+                    last_name=last,
+                    phone=tech.phone or '',
+                    role=Role.TECHNICIAN,
+                )
+                tech.user = user
+                tech.save(update_fields=['user'])
+        return tech
+
+
+class TechnicianAppAccessSerializer(serializers.Serializer):
+    """Vincular cuenta de app a un técnico existente (sin usuario)."""
+
+    app_username = serializers.CharField(max_length=150)
+    app_email = serializers.EmailField()
+    app_password = serializers.CharField(min_length=6, max_length=128, write_only=True)
+    app_password_confirm = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs['app_password'] != attrs['app_password_confirm']:
+            raise serializers.ValidationError({'app_password_confirm': 'Las contraseñas no coinciden'})
+        u = attrs['app_username'].strip()
+        e = attrs['app_email'].strip()
+        if User.objects.filter(username__iexact=u).exists():
+            raise serializers.ValidationError({'app_username': 'Este nombre de usuario ya existe'})
+        if User.objects.filter(email__iexact=e).exists():
+            raise serializers.ValidationError({'app_email': 'Este email ya está registrado'})
+        attrs['app_username'] = u
+        attrs['app_email'] = e
+        return attrs
 
 
 class TechnicianLocationUpdateSerializer(serializers.Serializer):

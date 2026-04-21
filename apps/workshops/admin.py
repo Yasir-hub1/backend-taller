@@ -12,10 +12,10 @@ class WorkshopAdmin(admin.ModelAdmin):
 
 @admin.register(Technician)
 class TechnicianAdmin(admin.ModelAdmin):
-    list_display = ['name', 'workshop', 'phone', 'is_available']
+    list_display = ['name', 'workshop', 'phone', 'is_available', 'user']
     list_filter = ['is_available', 'workshop']
-    search_fields = ['name', 'phone', 'workshop__name']
-    raw_id_fields = ['workshop']
+    search_fields = ['name', 'phone', 'workshop__name', 'user__username']
+    raw_id_fields = ['workshop', 'user']
 
 
 @admin.register(WorkshopRating)

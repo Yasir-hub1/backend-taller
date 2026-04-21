@@ -14,6 +14,7 @@ from apps.payments.urls import app_patterns as payments_app_patterns, web_patter
 from apps.payments.urls import shared_patterns as payments_shared_patterns
 from apps.notifications.urls import app_patterns as notifications_app_patterns, web_patterns as notifications_web_patterns
 from apps.assignments.urls import app_patterns as assignments_app_patterns
+from apps.assignments.technician_urls import technician_app_patterns
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -46,6 +47,9 @@ urlpatterns = [
 
     # /api/app/assignments/
     path('api/app/assignments/', include((assignments_app_patterns, 'assignments'), namespace='app-assignments')),
+
+    # /api/app/technician/ — app móvil técnico
+    path('api/app/technician/', include((technician_app_patterns, 'technician'), namespace='app-technician')),
 
     # ==================== WEB (Angular) ====================
     # /api/web/auth/

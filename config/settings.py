@@ -28,8 +28,10 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'django_eventstream',
     'django_q',
+    'channels',
 
     # Custom apps
+    'apps.realtime.apps.RealtimeConfig',
     'apps.users.apps.UsersConfig',
     'apps.workshops.apps.WorkshopsConfig',
     'apps.vehicles.apps.VehiclesConfig',
@@ -71,6 +73,12 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
 
 # Database
 DATABASES = {
@@ -165,7 +173,7 @@ Q_CLUSTER = {
 
 # CORS Settings
 # Orígenes típicos de `ng serve` (añadí host LAN frecuente; sobreescribir con env si hace falta).
-_default_cors = 'http://localhost:4200,http://127.0.0.1:4200,http://192.168.100.175:4200'
+_default_cors = 'http://localhost:4200,http://127.0.0.1:4200,http://192.168.100.200:4200,http://192.168.100.200:8081'
 CORS_ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', _default_cors).split(',') if o.strip()
 ]

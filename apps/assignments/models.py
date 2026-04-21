@@ -40,6 +40,8 @@ class Assignment(models.Model):
     arrived_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     rejection_reason = models.TextField(blank=True)
+    # Push única al cliente: técnico cerca del punto del incidente (geovalla vía WebSocket)
+    client_nearby_notified_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'assignments'

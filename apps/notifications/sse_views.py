@@ -54,9 +54,9 @@ def incident_stream(request, incident_id: int):
     if getattr(request, 'user', None) and request.user.is_authenticated:
         user = request.user
 
-    # 2) Fallback: token por query param
+    # 2) Fallback: token por query param (EventSource no envía Authorization)
     if user is None:
-        raw_token = request.query_params.get('token')
+        raw_token = request.query_params.get('token') or request.GET.get('token')
         if not raw_token:
             return HttpResponse('Unauthorized', status=401)
         try:
@@ -67,7 +67,10 @@ def incident_stream(request, incident_id: int):
             return HttpResponse('Unauthorized', status=401)
 
     # Verificar que el incidente pertenezca al cliente autenticado
-    exists = Incident.objects.filter(id=incident_id, client=user.client_profile).exists()
+    profile = getattr(user, 'client_profile', None)
+    if profile is None:
+        return HttpResponse('Forbidden', status=403)
+    exists = Incident.objects.filter(id=incident_id, client_id=profile.pk).exists()
     if not exists:
         return HttpResponse('Forbidden', status=403)
 
