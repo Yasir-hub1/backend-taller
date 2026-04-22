@@ -12,6 +12,7 @@ from apps.vehicles.urls import app_patterns as vehicles_app_patterns
 from apps.incidents.urls import app_patterns as incidents_app_patterns, web_patterns as incidents_web_patterns, admin_patterns as incidents_admin_patterns
 from apps.payments.urls import app_patterns as payments_app_patterns, web_patterns as payments_web_patterns, admin_patterns as payments_admin_patterns
 from apps.payments.urls import shared_patterns as payments_shared_patterns
+from apps.payments import reports_views
 from apps.notifications.urls import app_patterns as notifications_app_patterns, web_patterns as notifications_web_patterns
 from apps.assignments.urls import app_patterns as assignments_app_patterns
 from apps.assignments.technician_urls import technician_app_patterns
@@ -76,6 +77,10 @@ urlpatterns = [
 
     # /api/admin-api/incidents/
     path('api/admin-api/incidents/', include((incidents_admin_patterns, 'incidents'), namespace='admin-incidents')),
+
+    # Reportes admin (rutas explícitas antes del include amplio para evitar 404 si el proceso no recargó urls)
+    path('api/admin-api/reports/export/', reports_views.admin_reports_export_xlsx, name='admin-reports-export'),
+    path('api/admin-api/reports/', reports_views.admin_reports_summary, name='admin-reports-summary'),
 
     # /api/admin-api/ (commission, payments, metrics)
     path('api/admin-api/', include((payments_admin_patterns, 'payments'), namespace='admin-api')),
