@@ -113,7 +113,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 LANGUAGE_CODE = 'es'
-TIME_ZONE = 'America/Bogota'
+TIME_ZONE = 'America/La_Paz'
 USE_I18N = True
 USE_TZ = True
 
