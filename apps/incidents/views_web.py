@@ -463,7 +463,7 @@ def complete_incident(request, pk):
         from apps.payments.models import Payment, CommissionConfig, PaymentStatus
         from decimal import Decimal
 
-        commission_config = CommissionConfig.objects.filter(is_active=True).order_by('-effective_from').first()
+        commission_config = CommissionConfig.get_applicable_for_date()
         commission_rate = commission_config.percentage if commission_config else Decimal('10.00')
 
         commission_amount = (service_cost * commission_rate) / Decimal('100')

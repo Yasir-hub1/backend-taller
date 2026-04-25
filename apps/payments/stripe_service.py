@@ -1,7 +1,6 @@
 import stripe
 from django.conf import settings
 from apps.payments.models import CommissionConfig
-from datetime import date
 
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -14,12 +13,8 @@ class StripeService:
 
     @staticmethod
     def get_active_commission() -> float:
-        """Obtiene el porcentaje de comisión activo actual."""
-        config = CommissionConfig.objects.filter(
-            is_active=True,
-            effective_from__lte=date.today()
-        ).order_by('-effective_from').first()
-
+        """Porcentaje de comisión vigente (misma regla que GET commission/current/)."""
+        config = CommissionConfig.get_applicable_for_date()
         return float(config.percentage) if config else 10.0
 
     @staticmethod

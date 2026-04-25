@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class CommissionConfig(models.Model):
@@ -16,6 +17,15 @@ class CommissionConfig(models.Model):
     class Meta:
         db_table = 'commission_configs'
         ordering = ['-effective_from']
+
+    @classmethod
+    def get_applicable_for_date(cls, on_date=None):
+        """
+        Tarifa en vigor: la fila con effective_from más reciente que ya comenzó (<= on_date).
+        No depende de is_active; ese flag es solo ayuda en el historial administrativo.
+        """
+        d = on_date if on_date is not None else timezone.localdate()
+        return cls.objects.filter(effective_from__lte=d).order_by('-effective_from').first()
 
     def __str__(self):
         return f"Commission {self.percentage}% - Effective from {self.effective_from}"

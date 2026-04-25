@@ -25,12 +25,8 @@ class CommissionConfigViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def current(self, request):
-        """Obtener la configuración de comisión activa actual"""
-        from datetime import date
-        config = CommissionConfig.objects.filter(
-            is_active=True,
-            effective_from__lte=date.today()
-        ).order_by('-effective_from').first()
+        """Comisión aplicable hoy (última vigente por effective_from, ver flujo_operativo_emergencias Fase 1)."""
+        config = CommissionConfig.get_applicable_for_date()
 
         if config:
             serializer = CommissionConfigSerializer(config)
