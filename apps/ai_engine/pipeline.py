@@ -141,6 +141,28 @@ def process_incident_pipeline(incident_id: int):
         'candidates_count': len(candidates),
     })
 
+    try:
+        from apps.notifications.models import NotificationType
+        from apps.notifications.web_panel_notify import notify_web_panel_admins
+
+        notify_web_panel_admins(
+            title='Nuevo incidente en plataforma',
+            body=(
+                f'Incidente #{incident.id} ({incident.get_incident_type_display()}) '
+                f'listo para asignación — {len(candidates)} taller(es) notificados.'
+            ),
+            notification_type=NotificationType.INCIDENT_CREATED,
+            incident=incident,
+            data={'incident_id': incident.id, 'type': 'incident_created'},
+            sse_payload={
+                'event': 'admin_new_incident',
+                'incident_id': incident.id,
+                'candidates_count': len(candidates),
+            },
+        )
+    except Exception as e:
+        print(f"Web panel admin notify failed: {e}")
+
     print(f"Incident {incident_id} processed successfully")
     return {
         'incident_id': incident.id,

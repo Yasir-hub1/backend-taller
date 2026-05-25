@@ -137,6 +137,18 @@ class AssignmentEngine:
                     'distance_km': float(candidate['distance_km']),
                 })
 
+                from apps.notifications.web_panel_notify import send_web_push_only
+                send_web_push_only(
+                    user=owner_user,
+                    title='Nueva solicitud de emergencia',
+                    body=f"Incidente tipo {incident.get_incident_type_display()} a {candidate['distance_km']} km",
+                    data={
+                        'type': 'new_request',
+                        'incident_id': incident.id,
+                        'assignment_id': assignment_row.id,
+                    },
+                )
+
             except Exception as e:
                 print(f"Error sending notification to workshop {candidate['workshop'].id}: {e}")
 

@@ -13,6 +13,8 @@ class NotificationType(models.TextChoices):
     NEW_REQUEST = 'new_request', 'Nueva solicitud (taller)'
     STATUS_UPDATED = 'status_updated', 'Estado actualizado'
     NEW_RATING = 'new_rating', 'Nueva calificación (taller)'
+    WORKSHOP_VERIFIED = 'workshop_verified', 'Taller verificado (panel)'
+    WORKSHOP_PENDING_REVIEW = 'workshop_pending_review', 'Taller pendiente de revisión (admin)'
 
 
 class Notification(models.Model):
@@ -38,3 +40,6 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.title}"
+
+
+from apps.notifications.web_push_models import WebPushSubscription  # noqa: E402, F401

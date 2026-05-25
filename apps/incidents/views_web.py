@@ -587,3 +587,58 @@ def incident_history(request):
         })
 
     return Response(history_data)
+
+
+@api_view(['POST'])
+@permission_classes([IsWorkshopOwner])
+def create_service_quote(request, pk):
+    """Enviar cotización de daño / tiempo de reparación al cliente (app móvil)."""
+    from apps.assignments.models import ServiceQuote, ServiceQuoteStatus
+    from apps.assignments.serializers import ServiceQuoteCreateSerializer, ServiceQuoteSerializer
+
+    try:
+        workshop = Workshop.objects.get(owner=request.user.owner_profile)
+    except Workshop.DoesNotExist:
+        return Response({'error': 'No tienes un taller registrado'}, status=status.HTTP_404_NOT_FOUND)
+
+    assignment = Assignment.objects.filter(workshop=workshop, incident_id=pk).exclude(
+        status=AssignmentStatus.REJECTED
+    ).first()
+    if not assignment:
+        return Response({'error': 'No tienes asignación para este incidente'}, status=status.HTTP_403_FORBIDDEN)
+
+    ser = ServiceQuoteCreateSerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+    ServiceQuote.objects.filter(
+        assignment=assignment,
+        status=ServiceQuoteStatus.SENT,
+    ).update(status=ServiceQuoteStatus.SUPERSEDED)
+
+    quote = ServiceQuote.objects.create(
+        assignment=assignment,
+        amount=ser.validated_data['amount'],
+        estimated_repair_minutes=ser.validated_data['estimated_repair_minutes'],
+        damage_description=ser.validated_data.get('damage_description', ''),
+        status=ServiceQuoteStatus.SENT,
+        created_by=request.user,
+    )
+
+    try:
+        client_user = assignment.incident.client.user
+        from apps.notifications.models import Notification, NotificationType
+        Notification.objects.create(
+            user=client_user,
+            title='Nueva cotización de taller',
+            body=f'{workshop.name}: Bs. {quote.amount} — reparación ~{quote.estimated_repair_minutes} min.',
+            notification_type=NotificationType.STATUS_UPDATED,
+            incident=assignment.incident,
+            data={
+                'incident_id': assignment.incident_id,
+                'quote_id': quote.id,
+                'amount': str(quote.amount),
+            },
+        )
+    except Exception:
+        pass
+
+    return Response(ServiceQuoteSerializer(quote).data, status=status.HTTP_201_CREATED)

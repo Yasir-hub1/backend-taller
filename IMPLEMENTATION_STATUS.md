@@ -250,6 +250,8 @@ http://localhost:8000/api/docs/
 
 # Iniciar worker de Django-Q2 (en otra terminal)
 python manage.py qcluster
+python manage.py runasgi 0.0.0.0:8080                  
+
 ```
 
 ---

@@ -26,6 +26,27 @@ class WorkshopAdminViewSet(viewsets.ModelViewSet):
         is_verified = request.data.get('is_verified', True)
         workshop.is_verified = is_verified
         workshop.save()
+
+        if is_verified:
+            try:
+                from apps.notifications.models import NotificationType
+                from apps.notifications.web_panel_notify import deliver_to_web_panel_user
+
+                owner_user = workshop.owner.user
+                deliver_to_web_panel_user(
+                    user=owner_user,
+                    title='Taller verificado',
+                    body=f'Tu taller "{workshop.name}" fue verificado. Ya podés recibir solicitudes.',
+                    notification_type=NotificationType.WORKSHOP_VERIFIED,
+                    data={'workshop_id': workshop.id, 'type': 'workshop_verified'},
+                    sse_payload={
+                        'event': 'workshop_verified',
+                        'workshop_id': workshop.id,
+                    },
+                )
+            except Exception:
+                pass
+
         return Response({
             'message': f'Taller {"verificado" if is_verified else "marcado como no verificado"}',
             'is_verified': workshop.is_verified

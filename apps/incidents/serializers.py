@@ -140,6 +140,7 @@ class IncidentCreateSerializer(serializers.ModelSerializer):
             'latitude',
             'longitude',
             'address_text',
+            'client_request_id',
         ]
         read_only_fields = ['id']
 

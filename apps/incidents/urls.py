@@ -31,6 +31,18 @@ app_patterns = [
     path('<int:pk>/status-history/', views_app.IncidentViewSet.as_view({
         'get': 'status_history'
     }), name='app-status-history'),
+    path('<int:pk>/offered-workshops/', views_app.IncidentViewSet.as_view({
+        'get': 'offered_workshops'
+    }), name='app-offered-workshops'),
+    path('<int:pk>/select-workshop/', views_app.IncidentViewSet.as_view({
+        'post': 'select_workshop'
+    }), name='app-select-workshop'),
+    path('<int:pk>/quotes/', views_app.IncidentViewSet.as_view({
+        'get': 'quotes'
+    }), name='app-quotes'),
+    path('<int:pk>/quotes/respond/', views_app.IncidentViewSet.as_view({
+        'post': 'respond_quote'
+    }), name='app-quotes-respond'),
 ]
 
 # Web - /api/web/incidents/
@@ -41,6 +53,7 @@ web_patterns = [
     path('<int:pk>/reject/', views_web.reject_incident, name='web-reject'),
     path('<int:pk>/status/', views_web.update_incident_status, name='web-update-status'),
     path('<int:pk>/complete/', views_web.complete_incident, name='web-complete'),
+    path('<int:pk>/quote/', views_web.create_service_quote, name='web-quote'),
     path('history/', views_web.incident_history, name='web-history'),
 ]
 

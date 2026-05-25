@@ -42,6 +42,8 @@ class Assignment(models.Model):
     rejection_reason = models.TextField(blank=True)
     # Push única al cliente: técnico cerca del punto del incidente (geovalla vía WebSocket)
     client_nearby_notified_at = models.DateTimeField(null=True, blank=True)
+    # Preferencia del cliente entre talleres ofrecidos (app móvil)
+    client_selected_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'assignments'
@@ -52,3 +54,39 @@ class Assignment(models.Model):
 
     def __str__(self):
         return f"Assignment #{self.id} - {self.workshop.name} - {self.get_status_display()}"
+
+
+class ServiceQuoteStatus(models.TextChoices):
+    SENT = 'sent', 'Enviada'
+    APPROVED = 'approved', 'Aprobada por cliente'
+    REJECTED = 'rejected', 'Rechazada por cliente'
+    SUPERSEDED = 'superseded', 'Reemplazada'
+
+
+class ServiceQuote(models.Model):
+    """Cotización de daño / reparación asociada a una oferta de taller."""
+    assignment = models.ForeignKey(
+        Assignment, on_delete=models.CASCADE, related_name='quotes'
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    estimated_repair_minutes = models.PositiveIntegerField(
+        help_text='Tiempo estimado de reparación (no confundir con ETA de llegada)'
+    )
+    damage_description = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=ServiceQuoteStatus.choices,
+        default=ServiceQuoteStatus.SENT,
+    )
+    created_by = models.ForeignKey(
+        'users.User', on_delete=models.SET_NULL, null=True, blank=True
+    )
+    client_responded_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'service_quotes'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Quote #{self.id} assignment={self.assignment_id} {self.amount}"

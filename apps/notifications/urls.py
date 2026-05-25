@@ -1,5 +1,5 @@
 from django.urls import path
-from apps.notifications import views_app, views_web
+from apps.notifications import views_app, views_web, views_web_push
 from apps.notifications.sse_views import notifications_stream, incident_stream
 
 app_name = 'notifications'
@@ -21,4 +21,7 @@ web_patterns = [
     path('<int:pk>/read/', views_web.mark_as_read, name='web-mark-read'),
     path('read-all/', views_web.mark_all_as_read, name='web-mark-all-read'),
     path('stream/', notifications_stream, name='web-stream'),
+    path('web-push/vapid-public-key/', views_web_push.vapid_public_key_view, name='web-push-vapid'),
+    path('web-push/subscribe/', views_web_push.subscribe, name='web-push-subscribe'),
+    path('web-push/unsubscribe/', views_web_push.unsubscribe, name='web-push-unsubscribe'),
 ]

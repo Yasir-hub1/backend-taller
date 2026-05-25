@@ -167,6 +167,18 @@ def rate_workshop(request, pk):
             'rating_avg': float(workshop.rating_avg),
             'incident_id': assignment.incident_id,
         })
+
+        from apps.notifications.web_panel_notify import send_web_push_only
+        send_web_push_only(
+            user=owner_user,
+            title=title,
+            body=body,
+            data={
+                'type': 'new_rating',
+                'workshop_id': workshop.id,
+                'incident_id': assignment.incident_id,
+            },
+        )
     except Exception as e:
         logging.getLogger(__name__).exception('notify workshop rating: %s', e)
 

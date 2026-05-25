@@ -147,6 +147,14 @@ def confirm_payment(request):
                     body=f'${payment.total_amount} recibido',
                     data={'payment_id': str(payment.id), 'type': 'payment_confirmed'}
                 )
+
+            from apps.notifications.web_panel_notify import send_web_push_only
+            send_web_push_only(
+                user=owner_user,
+                title='Pago recibido',
+                body=f'Cliente pagó ${payment.total_amount} por servicio #{payment.assignment.incident.id}',
+                data={'payment_id': payment.id, 'type': 'payment_confirmed'},
+            )
         except Exception as e:
             print(f"Error sending notification: {e}")
 
@@ -242,6 +250,14 @@ def stripe_webhook(request):
                     body=f'Recibirás ${payment.workshop_net_amount} en tu cuenta Stripe.',
                     data={'payment_id': str(payment.id), 'type': 'payment_confirmed'},
                 )
+
+            from apps.notifications.web_panel_notify import send_web_push_only
+            send_web_push_only(
+                user=owner_user,
+                title='Pago recibido',
+                body=f'Pago confirmado. Neto a recibir: ${payment.workshop_net_amount}',
+                data={'payment_id': payment.id, 'type': 'payment_confirmed'},
+            )
         except Exception as e:
             print(f"Webhook notification error: {e}")
 

@@ -53,6 +53,28 @@ def workshop_create(request):
     serializer = WorkshopCreateSerializer(data=request.data)
     if serializer.is_valid():
         workshop = serializer.save(owner=request.user.owner_profile)
+
+        try:
+            from apps.notifications.models import NotificationType
+            from apps.notifications.web_panel_notify import notify_web_panel_admins
+
+            notify_web_panel_admins(
+                title='Taller pendiente de verificación',
+                body=f'"{workshop.name}" registró su perfil y espera revisión.',
+                notification_type=NotificationType.WORKSHOP_PENDING_REVIEW,
+                data={'workshop_id': workshop.id, 'type': 'workshop_pending_review'},
+                sse_payload={
+                    'event': 'workshop_pending_review',
+                    'workshop_id': workshop.id,
+                    'workshop_name': workshop.name,
+                    'title': 'Taller pendiente de verificación',
+                    'body': f'"{workshop.name}" registró su perfil y espera revisión.',
+                },
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception('notify admins workshop create: %s', exc)
+
         return Response(WorkshopDetailSerializer(workshop).data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

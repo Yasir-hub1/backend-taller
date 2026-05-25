@@ -31,8 +31,11 @@ stripe==10.7.0
 # Geolocalización
 geopy==2.4.1
 
-# Firebase
+# Firebase (app móvil)
 firebase-admin==6.5.0
+
+# Web Push panel web (VAPID, sin Firebase)
+pywebpush==1.14.0
 
 # Utils
 python-dotenv==1.0.1

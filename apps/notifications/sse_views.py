@@ -1,9 +1,9 @@
 """
 Server-Sent Events usando django-eventstream.
-El cliente Angular/Flutter se suscribe a este endpoint
+El cliente Angular se suscribe a este endpoint
 y recibe actualizaciones en tiempo real.
 
-django-eventstream usa la base de datos internamente (sin Redis).
+django-eventstream 5.x: events(request, channels=[...]) vía kwargs, no argumento posicional.
 """
 from django_eventstream import send_event
 from django.http import HttpResponse
@@ -34,11 +34,10 @@ class _SseCompatibleRenderer(BaseRenderer):
 def notifications_stream(request):
     """
     SSE endpoint para notificaciones en tiempo real.
-    El cliente se conecta a este endpoint y recibe eventos push.
+    Canal: user-<id> del usuario autenticado (JWT en Authorization).
     """
-    # Canal único por usuario
     channel = f'user-{request.user.id}'
-    return eventstream_events(request, [channel])
+    return eventstream_events(request, channels=[channel])
 
 
 @api_view(['GET'])
@@ -50,11 +49,9 @@ def incident_stream(request, incident_id: int):
     """
     user = None
 
-    # 1) Intentar auth estándar (Authorization: Bearer ...)
     if getattr(request, 'user', None) and request.user.is_authenticated:
         user = request.user
 
-    # 2) Fallback: token por query param (EventSource no envía Authorization)
     if user is None:
         raw_token = request.query_params.get('token') or request.GET.get('token')
         if not raw_token:
@@ -66,7 +63,6 @@ def incident_stream(request, incident_id: int):
         except (InvalidToken, AuthenticationFailed):
             return HttpResponse('Unauthorized', status=401)
 
-    # Verificar que el incidente pertenezca al cliente autenticado
     profile = getattr(user, 'client_profile', None)
     if profile is None:
         return HttpResponse('Forbidden', status=403)
@@ -75,30 +71,19 @@ def incident_stream(request, incident_id: int):
         return HttpResponse('Forbidden', status=403)
 
     channel = f'incident-{incident_id}'
-    return eventstream_events(request, [channel])
+    return eventstream_events(request, channels=[channel])
 
 
 def notify_incident_update(incident_id: int, data: dict):
-    """
-    Emitir evento de actualización de incidente.
-    Llamar desde cualquier parte del backend.
-    """
     channel = f'incident-{incident_id}'
     send_event(channel, 'message', data)
 
 
 def notify_user(user_id: int, data: dict):
-    """
-    Emitir evento a un usuario específico.
-    Llamar desde cualquier parte del backend.
-    """
     channel = f'user-{user_id}'
     send_event(channel, 'message', data)
 
 
 def notify_workshop(workshop_id: int, data: dict):
-    """
-    Emitir evento a un taller específico.
-    """
     channel = f'workshop-{workshop_id}'
     send_event(channel, 'message', data)

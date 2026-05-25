@@ -164,6 +164,18 @@ def build_reports_payload(request) -> dict:
         .order_by('-commission')[:15]
     )
 
+    from apps.payments.operational_analytics import (
+        _compute_sla,
+        _compute_unattended,
+        _top_geo_zones,
+        _top_workshops_efficiency,
+    )
+
+    top_workshops_efficiency = _top_workshops_efficiency(assign_qs)
+    top_geo_zones = _top_geo_zones(incident_qs)
+    sla_extra = _compute_sla(assign_qs)
+    unattended_extra = _compute_unattended(incident_qs)
+
     incident_rows = list(
         incident_qs.select_related('client__user', 'vehicle')
         .order_by('-created_at')[:200]
@@ -262,12 +274,18 @@ def build_reports_payload(request) -> dict:
             'new_clients_in_period': new_clients,
             'new_workshops_in_period': new_workshops,
             'verified_workshops_total': verified_workshops_total,
+            'sla_compliance_pct': sla_extra['sla_compliance_pct'],
+            'sla_cases_measured': sla_extra['sla_cases_measured'],
+            'incidents_unattended': unattended_extra['incidents_unattended'],
+            'cancellation_rate_pct': unattended_extra['cancellation_rate_pct'],
         },
         'charts': {
             'incidents_by_status': by_status,
             'incidents_by_type': by_type,
             'incidents_by_day': by_day,
             'assignments_by_status': assignments_by_status,
+            'top_workshops_efficiency': top_workshops_efficiency,
+            'top_geo_zones': top_geo_zones,
         },
         'top_workshops': top_workshops,
         'tables': {
@@ -281,6 +299,14 @@ def build_reports_payload(request) -> dict:
 @permission_classes([IsAdmin])
 def admin_reports_summary(request):
     return Response(build_reports_payload(request))
+
+
+@api_view(['GET'])
+@permission_classes([IsAdmin])
+def admin_operational_dashboard(request):
+    from apps.payments.operational_analytics import build_operational_dashboard
+
+    return Response(build_operational_dashboard(request))
 
 
 def _sheet_kv(ws, pairs: list[tuple[str, str]], title: str, header_font: Font):

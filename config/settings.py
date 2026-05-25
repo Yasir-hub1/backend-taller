@@ -198,8 +198,16 @@ STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
 # OpenAI
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 
-# Firebase (push notifications)
+# Firebase (push notifications — app móvil cliente/técnico)
 FIREBASE_CREDENTIALS_PATH = os.getenv('FIREBASE_CREDENTIALS_PATH', '')
+
+# Web Push VAPID (panel Angular taller/admin — sin Firebase)
+WEB_PUSH_VAPID_PUBLIC_KEY = os.getenv('WEB_PUSH_VAPID_PUBLIC_KEY', '')
+WEB_PUSH_VAPID_PRIVATE_KEY = os.getenv('WEB_PUSH_VAPID_PRIVATE_KEY', '')
+WEB_PUSH_VAPID_CLAIMS_EMAIL = os.getenv(
+    'WEB_PUSH_VAPID_CLAIMS_EMAIL',
+    'mailto:admin@appemergencias.local',
+)
 # Opcional: token de Expo (expo.dev) para mayor límite de rate en push API
 EXPO_ACCESS_TOKEN = os.getenv('EXPO_ACCESS_TOKEN', '')
 
@@ -215,3 +223,4 @@ ASSIGNMENT_ALLOW_UNVERIFIED = os.getenv(
 
 # Django Eventstream (SSE)
 EVENTSTREAM_ALLOW_ORIGINS = CORS_ALLOWED_ORIGINS
+EVENTSTREAM_CHANNELMANAGER_CLASS = 'apps.notifications.channel_manager.PanelWebChannelManager'

@@ -62,6 +62,11 @@ class Incident(models.Model):
     ai_summary = models.TextField(blank=True)  # Ficha estructurada (GPT)
     ai_confidence = models.FloatField(null=True, blank=True)  # Confianza clasificación
 
+    # Idempotencia app móvil / offline (UUID del cliente)
+    client_request_id = models.CharField(
+        max_length=36, unique=True, null=True, blank=True, db_index=True
+    )
+
     # Metadatos
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

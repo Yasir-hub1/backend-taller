@@ -81,6 +81,11 @@ urlpatterns = [
     # Reportes admin (rutas explícitas antes del include amplio para evitar 404 si el proceso no recargó urls)
     path('api/admin-api/reports/export/', reports_views.admin_reports_export_xlsx, name='admin-reports-export'),
     path('api/admin-api/reports/', reports_views.admin_reports_summary, name='admin-reports-summary'),
+    path(
+        'api/admin-api/operational-dashboard/',
+        reports_views.admin_operational_dashboard,
+        name='admin-operational-dashboard',
+    ),
 
     # /api/admin-api/ (commission, payments, metrics)
     path('api/admin-api/', include((payments_admin_patterns, 'payments'), namespace='admin-api')),
