@@ -112,14 +112,20 @@ class IncidentClassifier:
         Retorna una predicción placeholder cuando el modelo no está disponible.
         """
         labels = _normalize_incident_labels(self._labels)
-        scores = {label: 0.08 for label in labels}
-        pick = 'battery' if 'battery' in labels else (labels[-1] if labels else 'other')
-        scores[pick] = 0.42
+        if not labels:
+            labels = ['uncertain']
+        # Sin modelo entrenado no forzamos una clase específica.
+        # Dejamos baja confianza para que el pipeline combine con texto/audio.
+        base = round(1.0 / len(labels), 4)
+        scores = {label: base for label in labels}
+        pick = 'uncertain' if 'uncertain' in labels else labels[0]
+        confidence = 0.0 if pick == 'uncertain' else scores[pick]
 
         return {
             'label': pick,
-            'confidence': scores[pick],
+            'confidence': confidence,
             'all_scores': scores,
             'success': True,
-            'note': 'Using placeholder predictions (model not loaded)'
+            'source': 'placeholder',
+            'note': 'Using placeholder predictions (model not loaded)',
         }

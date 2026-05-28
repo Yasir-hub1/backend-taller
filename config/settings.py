@@ -208,6 +208,8 @@ WEB_PUSH_VAPID_CLAIMS_EMAIL = os.getenv(
     'WEB_PUSH_VAPID_CLAIMS_EMAIL',
     'mailto:admin@appemergencias.local',
 )
+# Panel web: encolar BD + SSE + Web Push con django-q (`python manage.py qcluster`)
+WEB_PANEL_NOTIFY_ASYNC = os.getenv('WEB_PANEL_NOTIFY_ASYNC', 'True').lower() == 'true'
 # Opcional: token de Expo (expo.dev) para mayor límite de rate en push API
 EXPO_ACCESS_TOKEN = os.getenv('EXPO_ACCESS_TOKEN', '')
 

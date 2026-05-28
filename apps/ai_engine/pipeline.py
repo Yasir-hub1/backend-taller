@@ -2,6 +2,10 @@
 Orquesta el procesamiento asíncrono de un incidente recién creado.
 Se ejecuta via django-q2 en background.
 """
+import re
+import unicodedata
+from collections import defaultdict
+
 from apps.ai_engine.whisper_service import WhisperService
 from apps.ai_engine.classifier_service import IncidentClassifier
 from apps.ai_engine.summary_service import SummaryService
@@ -20,6 +24,71 @@ PRIORITY_MAP = {
     'other': IncidentPriority.LOW,
     'uncertain': IncidentPriority.MEDIUM,
 }
+
+
+KEYWORDS_BY_TYPE = {
+    'battery': ['bateria', 'batería', 'descargad', 'no enciende', 'no prende', 'arrancar'],
+    'tire': ['llanta', 'pinchad', 'neumatic', 'neumático', 'ponchad', 'reventad'],
+    'engine': ['motor', 'humo', 'aceite', 'correa', 'temperatura', 'calienta', 'sobrecalent'],
+    'accident': ['choque', 'accident', 'colision', 'colisión', 'golpe', 'impacto'],
+    'locksmith': ['llave', 'cerradura', 'cerrajer', 'bloquead', 'puerta'],
+    'overheating': ['sobrecalent', 'radiador', 'temperatura alta', 'agua hirviendo'],
+}
+
+
+def _normalize_text(value: str) -> str:
+    text = (value or '').lower().strip()
+    text = unicodedata.normalize('NFKD', text)
+    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r'\s+', ' ', text)
+
+
+def _infer_type_from_text(description: str, transcriptions: list[str]) -> tuple[str, float]:
+    text = _normalize_text(' '.join([description or '', *transcriptions]))
+    if not text:
+        return 'uncertain', 0.0
+
+    score = defaultdict(float)
+    for incident_type, keywords in KEYWORDS_BY_TYPE.items():
+        for kw in keywords:
+            kw_n = _normalize_text(kw)
+            if kw_n in text:
+                score[incident_type] += 1.0
+
+    if not score:
+        return 'uncertain', 0.0
+
+    best = max(score, key=score.get)
+    # Confidence heurística en rango 0..1, saturando con múltiples coincidencias.
+    conf = min(0.9, 0.35 + 0.12 * score[best])
+    return best, conf
+
+
+def _decide_incident_type(best_image: dict, text_type: str, text_conf: float) -> tuple[str, float]:
+    """
+    Fusión simple y robusta:
+    - si imagen tiene confianza alta, prioriza imagen
+    - si imagen está débil/placeholder, usa texto-audio
+    - si no hay señal fuerte, devuelve uncertain
+    """
+    image_label = str(best_image.get('label') or 'uncertain')
+    image_conf = float(best_image.get('confidence') or 0.0)
+    image_source = str(best_image.get('source') or 'model')
+
+    # Placeholder no debe sesgar la clasificación.
+    if image_source == 'placeholder' and text_conf > 0:
+        return text_type, text_conf
+
+    if image_conf >= 0.6 and image_label != 'uncertain':
+        return image_label, image_conf
+
+    if text_conf >= 0.45 and text_type != 'uncertain':
+        return text_type, text_conf
+
+    if image_conf >= 0.35 and image_label != 'uncertain':
+        return image_label, image_conf
+
+    return 'uncertain', max(image_conf, text_conf, 0.0)
 
 
 def process_incident_pipeline(incident_id: int):
@@ -76,12 +145,9 @@ def process_incident_pipeline(incident_id: int):
             if result.get('confidence', 0) > best_classification['confidence']:
                 best_classification = result
 
-    # Determinar tipo de incidente basado en clasificación de imagen
-    # Umbral 0.3: compatible con placeholder IA (~0.4) y modelos ruidosos; sigue siendo conservador.
-    if best_classification['confidence'] > 0.3:
-        incident_type = best_classification['label']
-    else:
-        incident_type = 'uncertain'
+    # Determinar tipo con fusión coherente: imagen + descripción + audio.
+    text_type, text_conf = _infer_type_from_text(incident.description, transcriptions)
+    incident_type, final_conf = _decide_incident_type(best_classification, text_type, text_conf)
 
     # Validar que el tipo esté en las opciones válidas
     valid_types = [choice[0] for choice in IncidentType.choices]
@@ -110,9 +176,17 @@ def process_incident_pipeline(incident_id: int):
     # Actualizar incidente con resultados
     incident.incident_type = incident_type
     incident.ai_transcription = ' '.join(transcriptions)
-    incident.ai_classification_raw = best_classification
+    incident.ai_classification_raw = {
+        **best_classification,
+        'fusion': {
+            'text_type': text_type,
+            'text_confidence': text_conf,
+            'final_type': incident_type,
+            'final_confidence': final_conf,
+        },
+    }
     incident.ai_summary = summary_json
-    incident.ai_confidence = best_classification.get('confidence', 0)
+    incident.ai_confidence = final_conf
     incident.priority = PRIORITY_MAP.get(incident_type, IncidentPriority.MEDIUM)
     incident.status = IncidentStatus.WAITING_WORKSHOP
     incident.save()

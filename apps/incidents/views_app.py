@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.db.models import Prefetch
 from django.utils import timezone
+from decimal import Decimal, ROUND_HALF_UP
 from apps.incidents.models import Incident, Evidence, EvidenceType, IncidentStatus
 from apps.assignments.models import Assignment, AssignmentStatus, ServiceQuote, ServiceQuoteStatus
 from apps.assignments.serializers import ServiceQuoteSerializer
@@ -13,6 +14,35 @@ from apps.incidents.serializers import (
 )
 from apps.users.permissions import IsClient
 from tasks import enqueue_incident_pipeline
+
+
+AI_BASE_PRICE_BY_TYPE = {
+    'battery': Decimal('120'),
+    'tire': Decimal('90'),
+    'engine': Decimal('220'),
+    'accident': Decimal('280'),
+    'locksmith': Decimal('80'),
+    'overheating': Decimal('140'),
+    'other': Decimal('100'),
+    'uncertain': Decimal('110'),
+}
+
+
+def _compute_ai_price_for_assignment(incident: Incident, assignment: Assignment) -> Decimal:
+    """
+    Estimación IA por taller:
+    - base por tipo de incidente
+    - ajuste por distancia del taller al cliente
+    - ajuste suave por rating del taller
+    """
+    base = AI_BASE_PRICE_BY_TYPE.get(incident.incident_type, AI_BASE_PRICE_BY_TYPE['other'])
+    distance = assignment.distance_km if assignment.distance_km is not None else Decimal('0')
+    rating = assignment.workshop.rating_avg if assignment.workshop.rating_avg is not None else Decimal('3')
+
+    distance_factor = Decimal('1') + (Decimal(str(distance)) * Decimal('0.03'))
+    rating_factor = Decimal('1') + ((Decimal(str(rating)) - Decimal('3')) * Decimal('0.04'))
+    multiplier = max(Decimal('0.85'), min(Decimal('1.30'), distance_factor * rating_factor))
+    return (base * multiplier).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 
 class IncidentViewSet(viewsets.ModelViewSet):
@@ -158,17 +188,20 @@ class IncidentViewSet(viewsets.ModelViewSet):
         rows = (
             incident.assignments.filter(status=AssignmentStatus.OFFERED)
             .select_related('workshop')
-            .order_by('distance_km', '-client_selected_at')
+            .order_by('distance_km', 'id')
         )
         data = []
         for a in rows:
             w = a.workshop
+            ai_price = _compute_ai_price_for_assignment(incident, a)
             data.append({
                 'assignment_id': a.id,
                 'workshop_id': w.id,
                 'workshop_name': w.name,
                 'distance_km': str(a.distance_km) if a.distance_km is not None else None,
                 'rating_avg': str(w.rating_avg),
+                'ai_estimated_price': str(ai_price),
+                'ai_price_currency': 'BOB',
                 'services': w.services or [],
                 'client_selected': a.client_selected_at is not None,
                 'estimated_arrival_minutes': a.estimated_arrival_minutes,

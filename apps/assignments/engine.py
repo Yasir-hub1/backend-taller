@@ -114,38 +114,33 @@ class AssignmentEngine:
                         },
                     )
 
-                # Crear notificación en BD
-                from apps.notifications.models import Notification, NotificationType
-                Notification.objects.create(
+                from apps.notifications.models import NotificationType
+                from apps.notifications.web_panel_notify import deliver_to_web_panel_user
+
+                deliver_to_web_panel_user(
                     user=owner_user,
                     title='Nueva solicitud de emergencia',
-                    body=f"Incidente tipo {incident.get_incident_type_display()} a {candidate['distance_km']} km",
+                    body=(
+                        f"Incidente tipo {incident.get_incident_type_display()} "
+                        f"a {candidate['distance_km']} km"
+                    ),
                     notification_type=NotificationType.NEW_REQUEST,
                     incident=incident,
-                    data={
-                        'incident_id': incident.id,
-                        'distance_km': candidate['distance_km']
-                    },
-                    push_sent=bool(owner_user.fcm_token)
-                )
-
-                from apps.notifications.sse_views import notify_user
-                notify_user(owner_user.id, {
-                    'event': 'new_assignment_offer',
-                    'incident_id': incident.id,
-                    'assignment_id': assignment_row.id,
-                    'distance_km': float(candidate['distance_km']),
-                })
-
-                from apps.notifications.web_panel_notify import send_web_push_only
-                send_web_push_only(
-                    user=owner_user,
-                    title='Nueva solicitud de emergencia',
-                    body=f"Incidente tipo {incident.get_incident_type_display()} a {candidate['distance_km']} km",
                     data={
                         'type': 'new_request',
                         'incident_id': incident.id,
                         'assignment_id': assignment_row.id,
+                    },
+                    sse_payload={
+                        'event': 'new_assignment_offer',
+                        'incident_id': incident.id,
+                        'assignment_id': assignment_row.id,
+                        'distance_km': float(candidate['distance_km']),
+                        'title': 'Nueva solicitud de emergencia',
+                        'body': (
+                            f"Incidente tipo {incident.get_incident_type_display()} "
+                            f"a {candidate['distance_km']} km"
+                        ),
                     },
                 )
 
