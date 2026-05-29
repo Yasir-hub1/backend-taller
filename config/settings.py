@@ -210,6 +210,8 @@ WEB_PUSH_VAPID_CLAIMS_EMAIL = os.getenv(
 )
 # Panel web: encolar BD + SSE + Web Push con django-q (`python manage.py qcluster`)
 WEB_PANEL_NOTIFY_ASYNC = os.getenv('WEB_PANEL_NOTIFY_ASYNC', 'True').lower() == 'true'
+# URL del panel Angular (Stripe Checkout success/cancel)
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:4200')
 # Opcional: token de Expo (expo.dev) para mayor límite de rate en push API
 EXPO_ACCESS_TOKEN = os.getenv('EXPO_ACCESS_TOKEN', '')
 

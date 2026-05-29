@@ -50,6 +50,7 @@ class ClientProfile(models.Model):
 class WorkshopOwnerProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='owner_profile')
     national_id = models.CharField(max_length=30)  # NIT / cédula empresa
+    stripe_customer_id = models.CharField(max_length=100, blank=True)  # Cliente Stripe (suscripción)
     stripe_account_id = models.CharField(max_length=100, blank=True)  # Stripe Connect
 
     class Meta:

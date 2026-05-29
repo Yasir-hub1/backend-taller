@@ -184,6 +184,31 @@ def stripe_webhook(request):
     event_type = event.get('type')
     data = event.get('data', {}).get('object', {})
 
+    if event_type == 'checkout.session.completed':
+        from apps.payments.subscription_service import handle_checkout_session_completed
+        handle_checkout_session_completed(data)
+        return Response({'ok': True})
+
+    if event_type in ('customer.subscription.updated', 'customer.subscription.created'):
+        from apps.payments.subscription_service import apply_stripe_subscription
+        apply_stripe_subscription(data)
+        return Response({'ok': True})
+
+    if event_type == 'customer.subscription.deleted':
+        from apps.payments.subscription_service import apply_stripe_subscription
+        canceled = {**data, 'status': 'canceled'}
+        apply_stripe_subscription(canceled)
+        return Response({'ok': True})
+
+    if event_type == 'invoice.payment_failed':
+        sub_id = data.get('subscription')
+        if sub_id:
+            from apps.payments.models import WorkshopOwnerSubscription, WorkshopSubscriptionStatus
+            WorkshopOwnerSubscription.objects.filter(
+                stripe_subscription_id=sub_id
+            ).update(status=WorkshopSubscriptionStatus.PAST_DUE)
+        return Response({'ok': True})
+
     if event_type == 'payment_intent.succeeded':
         payment_intent_id = data.get('id')
         if not payment_intent_id:

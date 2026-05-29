@@ -41,7 +41,9 @@ class AssignmentEngine:
         """
         incident_location = (float(incident.latitude), float(incident.longitude))
 
-        qs = Workshop.objects.filter(is_active=True)
+        qs = Workshop.objects.filter(is_active=True).select_related(
+            'owner', 'owner__subscription'
+        )
         if not getattr(settings, 'ASSIGNMENT_ALLOW_UNVERIFIED', False):
             qs = qs.filter(is_verified=True)
         workshops = qs.prefetch_related('technicians')
@@ -49,6 +51,10 @@ class AssignmentEngine:
         candidates = []
 
         for workshop in workshops:
+            sub = getattr(workshop.owner, 'subscription', None)
+            if sub is None or not sub.is_operational:
+                continue
+
             # Verificar si el taller tiene técnicos disponibles
             has_available_tech = workshop.technicians.filter(is_available=True).exists()
             if not has_available_tech:

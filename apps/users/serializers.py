@@ -15,8 +15,8 @@ class ClientProfileSerializer(serializers.ModelSerializer):
 class WorkshopOwnerProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkshopOwnerProfile
-        fields = ['id', 'national_id', 'stripe_account_id']
-        read_only_fields = ['id', 'stripe_account_id']
+        fields = ['id', 'national_id', 'stripe_customer_id', 'stripe_account_id']
+        read_only_fields = ['id', 'stripe_customer_id', 'stripe_account_id']
 
 
 class TechnicianProfileSerializer(serializers.ModelSerializer):
@@ -35,6 +35,7 @@ class UserSerializer(serializers.ModelSerializer):
     client_profile = serializers.SerializerMethodField()
     owner_profile = serializers.SerializerMethodField()
     technician_profile = serializers.SerializerMethodField()
+    subscription = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -42,7 +43,7 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'first_name', 'last_name',
             'role', 'phone', 'avatar', 'fcm_token', 'is_verified',
             'created_at', 'updated_at', 'client_profile', 'owner_profile',
-            'technician_profile',
+            'technician_profile', 'subscription',
         ]
         read_only_fields = ['id', 'role', 'is_verified', 'created_at', 'updated_at']
 
@@ -62,6 +63,16 @@ class UserSerializer(serializers.ModelSerializer):
         try:
             return TechnicianProfileSerializer(obj.technician_profile).data
         except Technician.DoesNotExist:
+            return None
+
+    def get_subscription(self, obj):
+        if obj.role != Role.WORKSHOP_OWNER:
+            return None
+        try:
+            from apps.payments.subscription_serializers import WorkshopOwnerSubscriptionSerializer
+            sub = obj.owner_profile.subscription
+            return WorkshopOwnerSubscriptionSerializer(sub).data
+        except Exception:
             return None
 
 
@@ -134,32 +145,61 @@ class RegisterWorkshopOwnerSerializer(serializers.ModelSerializer):
     )
     password_confirm = serializers.CharField(write_only=True, required=True)
     national_id = serializers.CharField(required=True)
+    subscription_plan_id = serializers.IntegerField(required=True, write_only=True)
 
     class Meta:
         model = User
         fields = [
             'username', 'email', 'password', 'password_confirm',
-            'first_name', 'last_name', 'phone', 'national_id'
+            'first_name', 'last_name', 'phone', 'national_id',
+            'subscription_plan_id',
         ]
 
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError({"password": "Las contraseñas no coinciden"})
+        plan_id = attrs.get('subscription_plan_id')
+        from apps.payments.models import WorkshopSubscriptionPlan
+        if not WorkshopSubscriptionPlan.objects.filter(
+            pk=plan_id, is_active=True, is_public=True
+        ).exists():
+            raise serializers.ValidationError({'subscription_plan_id': 'Plan de suscripción no válido'})
         return attrs
 
     def create(self, validated_data):
         validated_data.pop('password_confirm')
+        plan_id = validated_data.pop('subscription_plan_id')
         national_id = validated_data.pop('national_id')
 
-        # Crear usuario
         user = User.objects.create_user(
             **validated_data,
             role='workshop_owner'
         )
 
-        # Crear perfil de dueño de taller
-        WorkshopOwnerProfile.objects.create(user=user, national_id=national_id)
+        owner_profile = WorkshopOwnerProfile.objects.create(user=user, national_id=national_id)
 
+        full_name = f'{user.first_name} {user.last_name}'.strip()
+        stripe_result = StripeService.create_customer(
+            email=user.email,
+            name=full_name or user.username,
+            phone=user.phone or '',
+        )
+        customer_id = stripe_result.get('customer_id')
+        if customer_id:
+            owner_profile.stripe_customer_id = customer_id
+            owner_profile.save(update_fields=['stripe_customer_id'])
+
+        from apps.payments.models import WorkshopSubscriptionPlan, WorkshopSubscriptionStatus
+        from apps.payments.models import WorkshopOwnerSubscription
+
+        plan = WorkshopSubscriptionPlan.objects.get(pk=plan_id)
+        WorkshopOwnerSubscription.objects.create(
+            owner=owner_profile,
+            plan=plan,
+            status=WorkshopSubscriptionStatus.PENDING,
+        )
+
+        self.context['subscription_plan'] = plan
         return user
 
 

@@ -15,18 +15,37 @@ from rest_framework.permissions import IsAuthenticated
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
-    """Registro de dueño de taller"""
+    """Registro de dueño de taller + checkout Stripe del plan elegido."""
     serializer = RegisterWorkshopOwnerSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.save()
         refresh = RefreshToken.for_user(user)
-        return Response({
+
+        from apps.payments.subscription_service import create_checkout_session
+
+        plan = serializer.context.get('subscription_plan')
+        checkout = create_checkout_session(
+            owner_profile=user.owner_profile,
+            plan=plan,
+            success_path='/auth/subscription-success',
+            cancel_path='/auth/register',
+        )
+
+        payload = {
             'user': UserSerializer(user).data,
             'tokens': {
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
-            }
-        }, status=status.HTTP_201_CREATED)
+            },
+            'requires_subscription_payment': True,
+        }
+        if checkout.get('checkout_url'):
+            payload['checkout_url'] = checkout['checkout_url']
+            payload['checkout_session_id'] = checkout.get('session_id')
+        elif checkout.get('error'):
+            payload['checkout_error'] = checkout['error']
+
+        return Response(payload, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 

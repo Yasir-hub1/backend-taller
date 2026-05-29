@@ -1,5 +1,6 @@
 from django.urls import path
-from apps.payments import views_app, views_web, views_admin
+from apps.payments import views_app, views_web, views_admin, views_subscription_web
+from apps.payments.views_subscription_admin import WorkshopSubscriptionPlanViewSet
 
 app_name = 'payments'
 
@@ -19,6 +20,10 @@ shared_patterns = [
 web_patterns = [
     path('earnings/', views_web.earnings_summary, name='web-earnings'),
     path('', views_web.payment_list, name='web-list'),
+    path('subscription-plans/', views_subscription_web.public_subscription_plans, name='web-sub-plans'),
+    path('subscriptions/me/', views_subscription_web.my_subscription, name='web-sub-me'),
+    path('subscriptions/checkout/', views_subscription_web.create_subscription_checkout, name='web-sub-checkout'),
+    path('subscriptions/verify/', views_subscription_web.verify_subscription_session, name='web-sub-verify'),
 ]
 
 # Admin - /api/admin-api/
@@ -48,4 +53,16 @@ admin_patterns = [
 
     # Métricas
     path('metrics/', views_admin.platform_metrics, name='admin-metrics'),
+
+    # Planes de suscripción talleres
+    path('subscription-plans/', WorkshopSubscriptionPlanViewSet.as_view({
+        'get': 'list',
+        'post': 'create',
+    }), name='admin-sub-plans-list'),
+    path('subscription-plans/<int:pk>/', WorkshopSubscriptionPlanViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy',
+    }), name='admin-sub-plans-detail'),
 ]
