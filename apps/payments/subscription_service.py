@@ -22,7 +22,7 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
 def _frontend_base() -> str:
-    return getattr(settings, 'FRONTEND_URL', 'http://localhost:4200').rstrip('/')
+    return getattr(settings, 'FRONTEND_URL', 'https://ahoringallego.smartcondominio.lat').rstrip('/')
 
 
 def sync_plan_to_stripe(plan: WorkshopSubscriptionPlan) -> WorkshopSubscriptionPlan:
