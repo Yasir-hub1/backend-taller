@@ -34,6 +34,7 @@ app_patterns = [
     path('<int:pk>/offered-workshops/', views_app.IncidentViewSet.as_view({
         'get': 'offered_workshops'
     }), name='app-offered-workshops'),
+    path('<int:pk>/refresh-workshop-offers/', views_app.refresh_workshop_offers, name='app-refresh-workshop-offers'),
     path('<int:pk>/select-workshop/', views_app.IncidentViewSet.as_view({
         'post': 'select_workshop'
     }), name='app-select-workshop'),

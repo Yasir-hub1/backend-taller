@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.db.models import Prefetch
@@ -225,15 +225,21 @@ class IncidentViewSet(viewsets.ModelViewSet):
         chosen.client_selected_at = now
         chosen.save(update_fields=['client_selected_at'])
         try:
+            from apps.notifications.models import NotificationType
+            from apps.notifications.web_panel_notify import deliver_to_web_panel_user
+
             owner = chosen.workshop.owner.user
-            from apps.notifications.models import Notification, NotificationType
-            Notification.objects.create(
+            deliver_to_web_panel_user(
                 user=owner,
                 title='Cliente eligió tu taller',
                 body=f'El cliente prefirió {chosen.workshop.name} para el incidente #{incident.id}.',
                 notification_type=NotificationType.NEW_REQUEST,
                 incident=incident,
-                data={'incident_id': incident.id, 'assignment_id': chosen.id},
+                data={
+                    'incident_id': incident.id,
+                    'assignment_id': chosen.id,
+                    'workshop_id': chosen.workshop_id,
+                },
             )
         except Exception:
             pass
@@ -281,3 +287,32 @@ class IncidentViewSet(viewsets.ModelViewSet):
             quote.status = ServiceQuoteStatus.REJECTED
             quote.save(update_fields=['status', 'client_responded_at'])
         return Response(ServiceQuoteSerializer(quote).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsClient])
+def refresh_workshop_offers(request, pk):
+    """Vuelve a ejecutar el motor de asignación (p. ej. si no hubo ofertas)."""
+    try:
+        incident = Incident.objects.get(pk=pk, client=request.user.client_profile)
+    except Incident.DoesNotExist:
+        return Response({'error': 'Incidente no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+    if incident.status != IncidentStatus.WAITING_WORKSHOP:
+        return Response(
+            {
+                'error': 'Solo disponible mientras se buscan talleres',
+                'status': incident.status,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    from apps.assignments.engine import AssignmentEngine
+
+    candidates = AssignmentEngine.find_and_notify_workshops(incident)
+    offered_count = incident.assignments.filter(status=AssignmentStatus.OFFERED).count()
+    return Response({
+        'candidates_count': len(candidates),
+        'offered_count': offered_count,
+        'incident_type': incident.incident_type,
+    })

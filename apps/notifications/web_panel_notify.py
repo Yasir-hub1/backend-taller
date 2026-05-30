@@ -7,6 +7,7 @@ import logging
 from apps.notifications.models import Notification
 from apps.notifications.sse_views import notify_user
 from apps.notifications.web_push_service import send_web_push_to_user
+from apps.notifications.workshop_scope import enrich_panel_notification_data
 from apps.users.models import Role, User
 
 logger = logging.getLogger(__name__)
@@ -28,11 +29,11 @@ def deliver_to_web_panel_user_sync(
     if user.role not in WEB_PANEL_ROLES:
         return
 
-    payload = dict(data or {})
-    if user.role == 'admin':
-        payload.setdefault('panel_path', '/admin/notificaciones')
-    else:
-        payload.setdefault('panel_path', '/taller/notificaciones')
+    payload = enrich_panel_notification_data(
+        user=user,
+        data=data,
+        incident=incident,
+    )
 
     Notification.objects.create(
         user=user,

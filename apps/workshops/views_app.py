@@ -12,6 +12,7 @@ from apps.notifications.sse_views import notify_user
 import logging
 
 from apps.assignments.models import Assignment, AssignmentStatus
+from apps.workshops.eligibility import workshop_visible_in_nearby
 from django.db.models import Avg
 from geopy.distance import geodesic
 from decimal import Decimal
@@ -35,14 +36,19 @@ def nearby_workshops(request):
     except ValueError:
         return Response({'error': 'Coordenadas inválidas'}, status=status.HTTP_400_BAD_REQUEST)
 
-    workshops = Workshop.objects.filter(is_active=True, is_verified=True).prefetch_related('technicians')
+    workshops = Workshop.objects.filter(is_active=True, is_verified=True).prefetch_related(
+        'technicians', 'owner', 'owner__subscription'
+    )
 
     nearby = []
     for workshop in workshops:
+        if not workshop_visible_in_nearby(workshop):
+            continue
         workshop_location = (float(workshop.latitude), float(workshop.longitude))
         distance = geodesic(user_location, workshop_location).km
 
-        if distance <= min(radius, workshop.radius_km):
+        # Radio de búsqueda del cliente (p. ej. 20 km); el radio del taller aplica al motor de asignación.
+        if distance <= radius:
             workshop.distance = Decimal(str(round(distance, 2)))
             workshop.distance_km = workshop.distance
             workshop.available_technicians = workshop.technicians.filter(is_available=True).count()

@@ -136,7 +136,12 @@ def confirm_payment(request):
                 body=f'Cliente pagó ${payment.total_amount} por servicio #{payment.assignment.incident.id}',
                 notification_type=NotificationType.PAYMENT_CONFIRMED,
                 incident=payment.assignment.incident,
-                data={'payment_id': payment.id, 'amount': str(payment.total_amount)}
+                data={
+                    'payment_id': payment.id,
+                    'amount': str(payment.total_amount),
+                    'workshop_id': workshop.id,
+                    'assignment_id': payment.assignment_id,
+                },
             )
 
             if owner_user.fcm_token:
@@ -153,7 +158,12 @@ def confirm_payment(request):
                 user=owner_user,
                 title='Pago recibido',
                 body=f'Cliente pagó ${payment.total_amount} por servicio #{payment.assignment.incident.id}',
-                data={'payment_id': payment.id, 'type': 'payment_confirmed'},
+                data={
+                    'payment_id': payment.id,
+                    'type': 'payment_confirmed',
+                    'workshop_id': workshop.id,
+                    'assignment_id': payment.assignment_id,
+                },
             )
         except Exception as e:
             print(f"Error sending notification: {e}")
@@ -254,6 +264,7 @@ def stripe_webhook(request):
             from apps.notifications.models import Notification, NotificationType
             from apps.notifications.firebase_service import FirebaseService
             owner_user = workshop_owner_profile.user
+            ws = payment.assignment.workshop
             Notification.objects.create(
                 user=owner_user,
                 title='Pago recibido',
@@ -264,6 +275,8 @@ def stripe_webhook(request):
                     'payment_id': payment.id,
                     'total_amount': str(payment.total_amount),
                     'net_amount': str(payment.workshop_net_amount),
+                    'workshop_id': ws.id,
+                    'assignment_id': payment.assignment_id,
                 },
                 push_sent=bool(owner_user.fcm_token),
             )
@@ -281,7 +294,12 @@ def stripe_webhook(request):
                 user=owner_user,
                 title='Pago recibido',
                 body=f'Pago confirmado. Neto a recibir: ${payment.workshop_net_amount}',
-                data={'payment_id': payment.id, 'type': 'payment_confirmed'},
+                data={
+                    'payment_id': payment.id,
+                    'type': 'payment_confirmed',
+                    'workshop_id': ws.id,
+                    'assignment_id': payment.assignment_id,
+                },
             )
         except Exception as e:
             print(f"Webhook notification error: {e}")

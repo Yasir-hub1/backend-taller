@@ -225,6 +225,12 @@ ASSIGNMENT_ALLOW_UNVERIFIED = os.getenv(
     'True' if DEBUG else 'False',
 ).lower() == 'true'
 
+# Si False, talleres sin suscripción activa no reciben ofertas (en DEBUG por defecto no se exige).
+ASSIGNMENT_REQUIRE_SUBSCRIPTION = os.getenv(
+    'ASSIGNMENT_REQUIRE_SUBSCRIPTION',
+    'False' if DEBUG else 'True',
+).lower() == 'true'
+
 # Django Eventstream (SSE)
 EVENTSTREAM_ALLOW_ORIGINS = CORS_ALLOWED_ORIGINS
 EVENTSTREAM_CHANNELMANAGER_CLASS = 'apps.notifications.channel_manager.PanelWebChannelManager'
