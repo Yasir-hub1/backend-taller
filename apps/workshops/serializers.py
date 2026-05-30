@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework import serializers
 from apps.workshops.models import Workshop, Technician, WorkshopRating
+from apps.workshops.geo import is_valid_coordinate_pair
 from apps.users.models import Role
 from decimal import Decimal
 
@@ -92,6 +93,15 @@ class WorkshopSerializer(serializers.ModelSerializer):
     def validate_services(self, value):
         return parse_services_list(value)
 
+    def validate(self, attrs):
+        lat = attrs.get('latitude', getattr(self.instance, 'latitude', None))
+        lng = attrs.get('longitude', getattr(self.instance, 'longitude', None))
+        if lat is not None and lng is not None and not is_valid_coordinate_pair(lat, lng):
+            raise serializers.ValidationError(
+                'latitude y longitude deben ser válidas (lat -90..90, lng -180..180).'
+            )
+        return attrs
+
 
 class WorkshopDetailSerializer(WorkshopSerializer):
     technicians = TechnicianSerializer(many=True, read_only=True)
@@ -115,6 +125,13 @@ class WorkshopCreateSerializer(serializers.ModelSerializer):
 
     def validate_services(self, value):
         return parse_services_list(value)
+
+    def validate(self, attrs):
+        if not is_valid_coordinate_pair(attrs.get('latitude'), attrs.get('longitude')):
+            raise serializers.ValidationError(
+                'latitude y longitude deben ser válidas (lat -90..90, lng -180..180).'
+            )
+        return attrs
 
     def create(self, validated_data):
         # El owner viene del request.user.owner_profile
@@ -241,6 +258,13 @@ class TechnicianAppAccessSerializer(serializers.Serializer):
 class TechnicianLocationUpdateSerializer(serializers.Serializer):
     latitude = serializers.DecimalField(max_digits=10, decimal_places=7, required=True)
     longitude = serializers.DecimalField(max_digits=10, decimal_places=7, required=True)
+
+    def validate(self, attrs):
+        if not is_valid_coordinate_pair(attrs.get('latitude'), attrs.get('longitude')):
+            raise serializers.ValidationError(
+                'latitude y longitude deben ser válidas (lat -90..90, lng -180..180).'
+            )
+        return attrs
 
 
 class TechnicianAvailabilitySerializer(serializers.Serializer):

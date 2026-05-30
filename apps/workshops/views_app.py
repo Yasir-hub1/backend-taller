@@ -9,13 +9,15 @@ from apps.workshops.serializers import (
 )
 from apps.notifications.models import Notification, NotificationType
 from apps.notifications.sse_views import notify_user
-import logging
 
 from apps.assignments.models import Assignment, AssignmentStatus
 from apps.workshops.eligibility import workshop_visible_in_nearby
+from apps.workshops.geo import coordinate_pair, distance_km
 from django.db.models import Avg
-from geopy.distance import geodesic
 from decimal import Decimal
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])
@@ -31,25 +33,51 @@ def nearby_workshops(request):
         return Response({'error': 'Se requieren latitude y longitude'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        user_location = (float(lat), float(lng))
         radius = float(radius)
     except ValueError:
-        return Response({'error': 'Coordenadas inválidas'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error': 'Radio inválido'}, status=status.HTTP_400_BAD_REQUEST)
 
-    workshops = Workshop.objects.filter(is_active=True, is_verified=True).prefetch_related(
-        'technicians', 'owner', 'owner__subscription'
+    user_location = coordinate_pair(lat, lng)
+    if user_location is None:
+        return Response(
+            {
+                'error': (
+                    'Coordenadas fuera de rango. '
+                    'Latitud entre -90 y 90; longitud entre -180 y 180.'
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    workshops = (
+        Workshop.objects.filter(
+            is_active=True,
+            is_verified=True,
+            latitude__gte=-90,
+            latitude__lte=90,
+            longitude__gte=-180,
+            longitude__lte=180,
+        )
+        .prefetch_related('technicians', 'owner', 'owner__subscription')
     )
 
     nearby = []
     for workshop in workshops:
         if not workshop_visible_in_nearby(workshop):
             continue
-        workshop_location = (float(workshop.latitude), float(workshop.longitude))
-        distance = geodesic(user_location, workshop_location).km
+        dist_km = distance_km(user_location, (workshop.latitude, workshop.longitude))
+        if dist_km is None:
+            logger.warning(
+                'nearby_workshops: omitiendo taller id=%s con coordenadas inválidas (%s, %s)',
+                workshop.id,
+                workshop.latitude,
+                workshop.longitude,
+            )
+            continue
 
         # Radio de búsqueda del cliente (p. ej. 20 km); el radio del taller aplica al motor de asignación.
-        if distance <= radius:
-            workshop.distance = Decimal(str(round(distance, 2)))
+        if dist_km <= radius:
+            workshop.distance = Decimal(str(round(dist_km, 2)))
             workshop.distance_km = workshop.distance
             workshop.available_technicians = workshop.technicians.filter(is_available=True).count()
             nearby.append(workshop)

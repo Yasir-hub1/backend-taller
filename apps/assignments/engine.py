@@ -1,10 +1,10 @@
-from geopy.distance import geodesic
 from django.conf import settings
 from apps.workshops.models import Workshop
 from apps.workshops.eligibility import (
     workshop_assignment_block_reason,
     workshop_handles_incident_type,
 )
+from apps.workshops.geo import coordinate_pair, distance_km
 from apps.assignments.models import Assignment
 from decimal import Decimal
 
@@ -16,7 +16,9 @@ class AssignmentEngine:
 
     @staticmethod
     def _collect_candidates(incident, *, strict_service_type: bool) -> list:
-        incident_location = (float(incident.latitude), float(incident.longitude))
+        incident_location = coordinate_pair(incident.latitude, incident.longitude)
+        if incident_location is None:
+            return []
         incident_type = str(incident.incident_type or '').strip()
 
         qs = Workshop.objects.filter(is_active=True).select_related(
@@ -33,16 +35,20 @@ class AssignmentEngine:
             if strict_service_type and not workshop_handles_incident_type(workshop, incident_type):
                 continue
 
-            workshop_location = (float(workshop.latitude), float(workshop.longitude))
-            distance_km = geodesic(incident_location, workshop_location).km
+            dist_km = distance_km(
+                incident_location,
+                (workshop.latitude, workshop.longitude),
+            )
+            if dist_km is None:
+                continue
             max_radius_km = min(float(workshop.radius_km or 15), 20.0)
-            if distance_km > max_radius_km:
+            if dist_km > max_radius_km:
                 continue
 
-            score = (1 / (distance_km + 0.1)) * float(workshop.rating_avg or 3.0)
+            score = (1 / (dist_km + 0.1)) * float(workshop.rating_avg or 3.0)
             candidates.append({
                 'workshop': workshop,
-                'distance_km': round(distance_km, 2),
+                'distance_km': round(dist_km, 2),
                 'score': score,
                 'relaxed_service_match': not strict_service_type,
             })

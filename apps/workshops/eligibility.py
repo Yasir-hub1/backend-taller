@@ -3,6 +3,8 @@ Criterios para listar talleres (mapa / nearby) y para ofertas de incidentes (Ass
 """
 from django.conf import settings
 
+from apps.workshops.geo import is_valid_coordinate_pair
+
 # Códigos legacy (panel web en español) → tipo canónico del incidente / ServiceCategory
 SERVICE_CODE_ALIASES: dict[str, str] = {
     'bateria': 'battery',
@@ -69,17 +71,13 @@ def workshop_assignment_block_reason(workshop) -> str | None:
             return 'subscription'
     if not workshop.technicians.filter(is_available=True).exists():
         return 'no_technician'
-    lat = workshop.latitude
-    lng = workshop.longitude
-    if lat is None or lng is None:
+    if not is_valid_coordinate_pair(workshop.latitude, workshop.longitude):
         return 'no_location'
     return None
 
 
 def workshop_visible_in_nearby(workshop) -> bool:
-    """Mapa «talleres cercanos»: activo, verificado y con coordenadas."""
+    """Mapa «talleres cercanos»: activo, verificado y con coordenadas WGS84 válidas."""
     if not workshop.is_active or not workshop.is_verified:
         return False
-    if workshop.latitude is None or workshop.longitude is None:
-        return False
-    return True
+    return is_valid_coordinate_pair(workshop.latitude, workshop.longitude)
