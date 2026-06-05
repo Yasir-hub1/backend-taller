@@ -1,5 +1,7 @@
 from django.urls import path
 from apps.workshops import views_app, views_web, views_admin
+from apps.ai_engine import voice_report_views
+from apps.payments import reports_views as payment_reports
 
 app_name = 'workshops'
 
@@ -16,6 +18,8 @@ web_patterns = [
     path('create/', views_web.workshop_create, name='web-create'),
     path('dashboard/', views_web.workshop_dashboard, name='web-dashboard'),
     path('earnings/', views_web.workshop_earnings, name='web-earnings'),
+    path('reports/voice-query/', voice_report_views.workshop_voice_query, name='web-reports-voice-query'),
+    path('reports/export/', payment_reports.workshop_reports_export_xlsx, name='web-reports-export'),
 
     # Stripe Connect
     path('stripe/connect/create/', views_web.create_stripe_connect_account, name='web-stripe-create'),

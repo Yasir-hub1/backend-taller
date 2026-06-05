@@ -13,6 +13,7 @@ from apps.incidents.urls import app_patterns as incidents_app_patterns, web_patt
 from apps.payments.urls import app_patterns as payments_app_patterns, web_patterns as payments_web_patterns, admin_patterns as payments_admin_patterns
 from apps.payments.urls import shared_patterns as payments_shared_patterns
 from apps.payments import reports_views
+from apps.ai_engine import voice_report_views
 from apps.notifications.urls import app_patterns as notifications_app_patterns, web_patterns as notifications_web_patterns
 from apps.assignments.urls import app_patterns as assignments_app_patterns
 from apps.assignments.technician_urls import technician_app_patterns
@@ -49,6 +50,13 @@ urlpatterns = [
     # /api/app/assignments/
     path('api/app/assignments/', include((assignments_app_patterns, 'assignments'), namespace='app-assignments')),
 
+    # /api/app/reports/ — app móvil cliente
+    path(
+        'api/app/reports/voice-query/',
+        voice_report_views.client_voice_query,
+        name='app-client-reports-voice-query',
+    ),
+
     # /api/app/technician/ — app móvil técnico
     path('api/app/technician/', include((technician_app_patterns, 'technician'), namespace='app-technician')),
 
@@ -80,6 +88,11 @@ urlpatterns = [
 
     # Reportes admin (rutas explícitas antes del include amplio para evitar 404 si el proceso no recargó urls)
     path('api/admin-api/reports/export/', reports_views.admin_reports_export_xlsx, name='admin-reports-export'),
+    path(
+        'api/admin-api/reports/voice-query/',
+        voice_report_views.admin_voice_query,
+        name='admin-reports-voice-query',
+    ),
     path('api/admin-api/reports/', reports_views.admin_reports_summary, name='admin-reports-summary'),
     path(
         'api/admin-api/operational-dashboard/',

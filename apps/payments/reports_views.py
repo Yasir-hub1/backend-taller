@@ -3,6 +3,7 @@ Reportes generales para administración: agregados, series temporales y exportac
 """
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
 from decimal import Decimal
 from io import BytesIO
@@ -18,7 +19,7 @@ from apps.assignments.models import Assignment, AssignmentStatus
 from apps.incidents.models import Incident, IncidentCycleMetric, IncidentStatus, IncidentType
 from apps.payments.models import Payment, PaymentStatus
 from apps.users.models import Role, User
-from apps.users.permissions import IsAdmin
+from apps.users.permissions import IsAdmin, IsWorkshopOwner
 from apps.workshops.models import Workshop, WorkshopRating
 
 try:
@@ -449,6 +450,138 @@ def admin_reports_export_xlsx(request):
     bio.seek(0)
 
     fname = f"reporte_admin_{data['meta']['date_from']}_{data['meta']['date_to']}.xlsx"
+    resp = HttpResponse(
+        bio.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    resp['Content-Disposition'] = f'attachment; filename="{fname}"'
+    return resp
+
+
+@api_view(['GET'])
+@permission_classes([IsWorkshopOwner])
+def workshop_reports_export_xlsx(request):
+    """Export Excel del reporte del taller del dueño autenticado."""
+    if Workbook is None:
+        return Response(
+            {'error': 'openpyxl no está instalado. Ejecuta: pip install openpyxl'},
+            status=500,
+        )
+
+    try:
+        workshop = Workshop.objects.get(owner=request.user.owner_profile)
+    except Workshop.DoesNotExist:
+        return Response({'error': 'No tienes un taller registrado'}, status=404)
+
+    from apps.ai_engine.report_metrics import build_workshop_reports_payload
+
+    data = build_workshop_reports_payload(request, workshop)
+    wb = Workbook()
+    bold = Font(bold=True)
+
+    ws0 = wb.active
+    ws0.title = 'Resumen'
+    k = data['kpis']
+    meta = data['meta']
+    pairs = [
+        ('Taller', meta['workshop_name']),
+        ('Período desde', meta['date_from']),
+        ('Período hasta', meta['date_to']),
+        ('Generado', meta['generated_at']),
+        ('', ''),
+        ('Asignaciones totales', str(k['assignments_total'])),
+        ('Ofertas pendientes', str(k['offered_pending'])),
+        ('Servicios activos', str(k['active_services'])),
+        ('Completados en período', str(k['completed_in_period'])),
+        ('Rechazados', str(k['rejected_in_period'])),
+        ('Pagos en período', str(k['payments_count'])),
+        ('Ingresos netos (Bs.)', k['earnings_net_period']),
+        ('Ingresos brutos (Bs.)', k['earnings_gross_period']),
+        ('Calificación taller', str(k['workshop_rating_avg'])),
+        ('Calificación período', str(k['ratings_avg_period'] or '—')),
+        ('Técnicos disponibles', str(k['technicians_available'])),
+        ('Técnicos totales', str(k['technicians_total'])),
+    ]
+    _sheet_kv(ws0, pairs, f"Reporte taller — {meta['workshop_name']}", bold)
+
+    def write_table_sheet(name: str, headers: list[str], rows: list[list]):
+        ws = wb.create_sheet(title=name[:31])
+        ws.append(headers)
+        for c in ws[1]:
+            c.font = bold
+        for row in rows:
+            ws.append(row)
+
+    write_table_sheet(
+        'Asignaciones por estado',
+        ['Estado', 'Cantidad'],
+        [
+            [r.get('status_label', r['status']), r['count']]
+            for r in data['charts']['assignments_by_status']
+        ],
+    )
+    write_table_sheet(
+        'Por tipo incidente',
+        ['Tipo', 'Cantidad'],
+        [
+            [r.get('type_label', r['incident_type']), r['count']]
+            for r in data['charts']['incidents_by_type']
+        ],
+    )
+    narrative = (data.get('summary') or {}).get('narrative')
+    if narrative:
+        ws_n = wb.create_sheet(title='Resumen narrativo')
+        ws_n.append(['Resumen'])
+        ws_n['A1'].font = bold
+        ws_n.append([narrative])
+    write_table_sheet(
+        'Detalle asignaciones',
+        [
+            'ID', 'Estado asign.', 'Inc.', 'Tipo', 'Estado inc.', 'Cliente', 'Vehículo',
+            'Técnico', 'Dist. km', 'Costo', 'Oferta', 'Aceptada', 'Completado',
+        ],
+        [
+            [
+                r['id'],
+                r.get('status_label', r['status']),
+                r['incident_id'],
+                r.get('incident_type_label', r['incident_type']),
+                r.get('incident_status_label', r['incident_status']),
+                r['client_name'],
+                r['vehicle_label'],
+                r.get('technician_name'),
+                r.get('distance_km'),
+                r.get('service_cost'),
+                r.get('offered_at'),
+                r.get('accepted_at'),
+                r['completed_at'],
+            ]
+            for r in data['tables']['recent_assignments']
+        ],
+    )
+    write_table_sheet(
+        'Detalle pagos',
+        ['ID', 'Inc.', 'Cliente', 'Total', 'Neto taller', 'Estado', 'Pagado'],
+        [
+            [
+                r['id'],
+                r['incident_id'],
+                r['client_name'],
+                r['total_amount'],
+                r['workshop_net_amount'],
+                r['status'],
+                r['paid_at'],
+            ]
+            for r in data['tables']['recent_payments']
+        ],
+    )
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    safe_name = re.sub(r'[^\w\-]+', '_', meta['workshop_name'])[:40]
+    fname = f"reporte_taller_{safe_name}_{meta['date_from']}_{meta['date_to']}.xlsx"
     resp = HttpResponse(
         bio.getvalue(),
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
